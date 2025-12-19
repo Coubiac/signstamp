@@ -1,0 +1,1 @@
+{"root":["./src/App.test.tsx","./src/App.tsx","./src/i18n.ts","./src/main.tsx","./src/setupTests.ts","./src/types.ts","./src/vite-env.d.ts","./src/pdf/coords.test.ts","./src/pdf/coords.ts","./src/pdf/exportPdf.test.ts","./src/pdf/exportPdf.ts"],"version":"5.9.3"}

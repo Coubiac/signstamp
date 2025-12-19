@@ -1,0 +1,47 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "rpm",
+      "app",
+      "dmg",
+      "msi",
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon-512.png",
+      "icons/icon-256.png",
+      "icons/icon-128.png",
+      "icons/icon-64.png",
+      "icons/icon-32.png",
+      "icons/icon-16.png"
+    ]
+  },
+  "productName": "SignStamp",
+  "mainBinaryName": "SignStamp",
+  "version": "0.1.0",
+  "identifier": "com.example.fillsignpdf",
+  "plugins": {},
+  "app": {
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "title": "SignStamp",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "useHttpsScheme": true
+      }
+    ]
+  }
+}
