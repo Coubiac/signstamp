@@ -26,7 +26,7 @@ struct LoadedPdf {
     name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenPdfPayload {
     path: String,
