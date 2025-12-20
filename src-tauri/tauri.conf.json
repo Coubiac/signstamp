@@ -23,11 +23,20 @@
       "icons/icon-64.png",
       "icons/icon-32.png",
       "icons/icon-16.png"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["pdf"],
+        "name": "PDF Document",
+        "description": "PDF Document",
+        "role": "Viewer",
+        "mimeType": "application/pdf"
+      }
     ]
   },
   "productName": "SignStamp",
   "mainBinaryName": "SignStamp",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "identifier": "com.example.fillsignpdf",
   "plugins": {},
   "app": {

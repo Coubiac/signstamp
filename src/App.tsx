@@ -4,6 +4,7 @@ import type { Item, SignatureAsset, Tool, TextItem, PdfPoint, PdfRect } from "./
 import { exportFlattenedPdf } from "./pdf/exportPdf";
 import { pdfRectToCss, pxDeltaToPdfDelta, pxSizeToPdfSize } from "./pdf/coords";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
 import {
   ArrowsOutCardinal,
@@ -287,6 +288,28 @@ export default function App() {
     }
   }, [snippets]);
 
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | null = null;
+
+    void listen<{ path: string }>("open-pdf", async (event) => {
+      if (!event.payload?.path) return;
+      try {
+        await openPdfFromPath(event.payload.path);
+      } catch (err) {
+        console.error("Open PDF from path failed:", err);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+
 
   function pushHistory(snapshot: Item[]) {
     setHistory(prev => prev.concat([snapshot]));
@@ -454,12 +477,11 @@ export default function App() {
     });
   }, [signatures]);
 
-  async function openPdf(file: File) {
-    const bytes = await fileToBytes(file);
+  async function openPdfBytes(bytes: Uint8Array, name: string) {
     // pdf.js peut transférer le buffer vers le worker et le "neuter"
     // on garde donc une copie pour l'export
     setPdfBytes(bytes.slice(0));
-    setFileName(file.name || "document.pdf");
+    setFileName(name || "document.pdf");
 
     const loadingTask = getDocument({ data: bytes });
     const doc = await loadingTask.promise;
@@ -471,6 +493,19 @@ export default function App() {
     setEditingValue("");
     setSelectedId(null);
     setDrag({ kind: "none" });
+  }
+
+  async function openPdf(file: File) {
+    const bytes = await fileToBytes(file);
+    await openPdfBytes(bytes, file.name || "document.pdf");
+  }
+
+  type LoadedPdfPayload = { bytes: number[]; name: string };
+
+  async function openPdfFromPath(path: string) {
+    const payload = await invoke<LoadedPdfPayload>("load_pdf_from_path", { path });
+    const bytes = new Uint8Array(payload.bytes);
+    await openPdfBytes(bytes, payload.name);
   }
 
   function onOverlayClick(e: ReactMouseEvent, pageNum: number) {
@@ -1029,7 +1064,7 @@ export default function App() {
   }
 
   function onSnippetDrop(e: React.DragEvent<HTMLDivElement>, pageNum: number) {
-    const text = e.dataTransfer.getData("text/plain").trim();
+    const text = (e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text")).trim();
     if (!text) return;
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     addTextAt(pageNum, e.clientX - rect.left, e.clientY - rect.top, text, false);
@@ -1383,6 +1418,7 @@ export default function App() {
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData("text/plain", entry);
+                        e.dataTransfer.setData("text", entry);
                         e.dataTransfer.effectAllowed = "copy";
                       }}
                       title={t("snippets_use")}
@@ -1439,6 +1475,7 @@ export default function App() {
                       onDragOver={(e) => {
                         if (!canEdit) return;
                         e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
                       }}
                       onDrop={(e) => {
                         if (!canEdit) return;

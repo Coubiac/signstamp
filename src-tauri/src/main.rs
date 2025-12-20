@@ -18,6 +18,19 @@ struct StoredSignature {
     natural_h: u32,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadedPdf {
+    bytes: Vec<u8>,
+    name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenPdfPayload {
+    path: String,
+}
+
 fn signatures_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -105,6 +118,18 @@ fn save_pdf_to_path(bytes: Vec<u8>, path: String) -> Result<String, String> {
     Ok(target.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn load_pdf_from_path(path: String) -> Result<LoadedPdf, String> {
+    let target = PathBuf::from(&path);
+    let bytes = std::fs::read(&target).map_err(|e| format!("lecture impossible: {e}"))?;
+    let name = target
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document.pdf")
+        .to_string();
+    Ok(LoadedPdf { bytes, name })
+}
+
 fn sanitize_file_name(name: &str) -> String {
     let raw = Path::new(name)
         .file_name()
@@ -143,8 +168,35 @@ fn next_available_path(dir: PathBuf, file_name: &str) -> PathBuf {
     dir.join(format!("{stem}-export.{ext}"))
 }
 
+fn is_pdf_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false)
+}
+
+fn emit_open_pdf(app: &tauri::AppHandle, path: PathBuf) {
+    if !is_pdf_path(&path) || !path.exists() {
+        return;
+    }
+
+    let path = match path.to_str() {
+        Some(path) => path.to_string(),
+        None => return,
+    };
+
+    if let Err(err) = app.emit_all("open-pdf", OpenPdfPayload { path }) {
+        eprintln!("emit open-pdf failed: {err}");
+    }
+}
+
 fn main() {
-    tauri::Builder::default()
+    let mut initial_paths: Vec<PathBuf> = std::env::args_os()
+        .skip(1)
+        .map(PathBuf::from)
+        .collect();
+
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -153,8 +205,26 @@ fn main() {
             save_signatures,
             load_snippets,
             save_snippets,
-            save_pdf_to_path
+            save_pdf_to_path,
+            load_pdf_from_path
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(move |app_handle, event| match event {
+        tauri::RunEvent::Ready => {
+            for path in initial_paths.drain(..) {
+                emit_open_pdf(app_handle, path);
+            }
+        }
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        tauri::RunEvent::Opened { urls } => {
+            for url in urls {
+                if let Ok(path) = url.to_file_path() {
+                    emit_open_pdf(app_handle, path);
+                }
+            }
+        }
+        _ => {}
+    });
 }
