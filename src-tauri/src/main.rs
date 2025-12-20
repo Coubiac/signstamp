@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use tauri::Manager;
+use tauri::Emitter;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
