@@ -185,7 +185,7 @@ fn emit_open_pdf(app: &tauri::AppHandle, path: PathBuf) {
         None => return,
     };
 
-    if let Err(err) = app.emit_all("open-pdf", OpenPdfPayload { path }) {
+    if let Err(err) = app.emit("open-pdf", OpenPdfPayload { path }) {
         eprintln!("emit open-pdf failed: {err}");
     }
 }
