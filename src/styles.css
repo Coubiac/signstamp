@@ -466,6 +466,9 @@ html, body {
   text-align: left;
   padding: 4px;
   cursor: grab;
+  -webkit-user-drag: element;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .snippets-use span {

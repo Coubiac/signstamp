@@ -4,6 +4,7 @@
 )]
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::Manager;
 use tauri::Emitter;
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,9 @@ struct LoadedPdf {
 struct OpenPdfPayload {
     path: String,
 }
+
+#[derive(Default)]
+struct PendingOpen(Mutex<Vec<PathBuf>>);
 
 fn signatures_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -131,6 +135,17 @@ fn load_pdf_from_path(path: String) -> Result<LoadedPdf, String> {
     Ok(LoadedPdf { bytes, name })
 }
 
+#[tauri::command]
+fn take_pending_open_paths(state: tauri::State<PendingOpen>) -> Vec<String> {
+    let mut guard = state.0.lock().unwrap();
+    let pending = std::mem::take(&mut *guard);
+    pending
+        .into_iter()
+        .filter(|path| is_pdf_path(path) && path.exists())
+        .filter_map(|path| path.to_str().map(|value| value.to_string()))
+        .collect()
+}
+
 fn sanitize_file_name(name: &str) -> String {
     let raw = Path::new(name)
         .file_name()
@@ -181,6 +196,10 @@ fn emit_open_pdf(app: &tauri::AppHandle, path: PathBuf) {
         return;
     }
 
+    if let Ok(mut guard) = app.state::<PendingOpen>().0.lock() {
+        guard.push(path.clone());
+    }
+
     let path = match path.to_str() {
         Some(path) => path.to_string(),
         None => return,
@@ -198,6 +217,7 @@ fn main() {
         .collect();
 
     let app = tauri::Builder::default()
+        .manage(PendingOpen::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -207,7 +227,8 @@ fn main() {
             load_snippets,
             save_snippets,
             save_pdf_to_path,
-            load_pdf_from_path
+            load_pdf_from_path,
+            take_pending_open_paths
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

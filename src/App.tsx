@@ -114,6 +114,7 @@ export default function App() {
   const [editingSignatureId, setEditingSignatureId] = useState<string | null>(null);
   const [editingSignatureName, setEditingSignatureName] = useState("");
   const [themeChoice, setThemeChoice] = useState<"light" | "dark">("light");
+  const openedPdfPaths = useRef(new Set<string>());
 
   const itemsByPage = useMemo(() => {
     const map = new Map<number, Item[]>();
@@ -291,22 +292,33 @@ export default function App() {
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | null = null;
+    let cancelled = false;
 
-    void listen<{ path: string }>("open-pdf", async (event) => {
-      if (!event.payload?.path) return;
+    async function initOpenListener() {
       try {
-        await openPdfFromPath(event.payload.path);
+        unlisten = await listen<{ path: string }>("open-pdf", (event) => {
+          if (!event.payload?.path) return;
+          openPdfPathOnce(event.payload.path);
+        });
       } catch (err) {
-        console.error("Open PDF from path failed:", err);
+        console.error("Open PDF listener failed:", err);
       }
-    }).then((fn) => {
-      unlisten = fn;
-    });
+
+      try {
+        const pending = await invoke<string[]>("take_pending_open_paths");
+        if (!cancelled) {
+          pending.forEach(openPdfPathOnce);
+        }
+      } catch (err) {
+        console.error("Load pending open paths failed:", err);
+      }
+    }
+
+    void initOpenListener();
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      cancelled = true;
+      if (unlisten) unlisten();
     };
   }, []);
 
@@ -506,6 +518,17 @@ export default function App() {
     const payload = await invoke<LoadedPdfPayload>("load_pdf_from_path", { path });
     const bytes = new Uint8Array(payload.bytes);
     await openPdfBytes(bytes, payload.name);
+  }
+
+  function openPdfPathOnce(path: string) {
+    const key = path.trim();
+    if (!key) return;
+    if (openedPdfPaths.current.has(key)) return;
+    openedPdfPaths.current.add(key);
+    window.setTimeout(() => openedPdfPaths.current.delete(key), 5000);
+    void openPdfFromPath(path).catch((err) => {
+      console.error("Open PDF from path failed:", err);
+    });
   }
 
   function onOverlayClick(e: ReactMouseEvent, pageNum: number) {
@@ -1064,7 +1087,11 @@ export default function App() {
   }
 
   function onSnippetDrop(e: React.DragEvent<HTMLDivElement>, pageNum: number) {
-    const text = (e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text")).trim();
+    const text = (
+      e.dataTransfer.getData("application/x-signstamp-snippet")
+      || e.dataTransfer.getData("text/plain")
+      || e.dataTransfer.getData("text")
+    ).trim();
     if (!text) return;
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     addTextAt(pageNum, e.clientX - rect.left, e.clientY - rect.top, text, false);
@@ -1413,10 +1440,13 @@ export default function App() {
               <div className="snippets-list">
                 {snippets.map((entry) => (
                   <div key={entry} className="snippets-item">
-                    <button
+                    <div
                       className="snippets-use"
+                      role="button"
+                      tabIndex={0}
                       draggable
                       onDragStart={(e) => {
+                        e.dataTransfer.setData("application/x-signstamp-snippet", entry);
                         e.dataTransfer.setData("text/plain", entry);
                         e.dataTransfer.setData("text", entry);
                         e.dataTransfer.effectAllowed = "copy";
@@ -1424,7 +1454,7 @@ export default function App() {
                       title={t("snippets_use")}
                     >
                       <span>{entry}</span>
-                    </button>
+                    </div>
                     <button
                       className="snippets-remove"
                       onClick={() => removeSnippet(entry)}
@@ -1471,6 +1501,11 @@ export default function App() {
                       onClick={(e) => {
                         if (e.target === e.currentTarget) setSelectedId(null);
                         onOverlayClick(e, pageNum);
+                      }}
+                      onDragEnter={(e) => {
+                        if (!canEdit) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
                       }}
                       onDragOver={(e) => {
                         if (!canEdit) return;
