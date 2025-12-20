@@ -321,7 +321,7 @@ export default function App() {
   }
 
   function startEditingText(id: string) {
-    const item = items.find(i => i.id === id && i.type === "text");
+    const item = items.find((i): i is TextItem => i.id === id && i.type === "text");
     if (!item || item.type !== "text") return;
     setEditingId(id);
     setEditingValue(item.value);
