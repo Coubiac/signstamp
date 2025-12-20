@@ -21,6 +21,7 @@ import {
   Minus,
   Moon,
   Plus,
+  Printer,
   Signature as SignatureIcon,
   Sun,
   TextB,
@@ -115,6 +116,12 @@ export default function App() {
   const [editingSignatureName, setEditingSignatureName] = useState("");
   const [themeChoice, setThemeChoice] = useState<"light" | "dark">("light");
   const openedPdfPaths = useRef(new Set<string>());
+  const overlayRefs = useRef(new Map<number, HTMLDivElement>());
+  const snippetDrag = useRef<{ value: string; pointerId: number; lastX: number; lastY: number } | null>(null);
+  const isMac = useMemo(
+    () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform),
+    []
+  );
 
   const itemsByPage = useMemo(() => {
     const map = new Map<number, Item[]>();
@@ -531,6 +538,46 @@ export default function App() {
     });
   }
 
+  function findOverlayAt(x: number, y: number) {
+    for (const [pageNum, el] of overlayRefs.current.entries()) {
+      const rect = el.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        return { pageNum, rect };
+      }
+    }
+    return null;
+  }
+
+  function startSnippetDrag(e: ReactPointerEvent, value: string) {
+    if (!isMac) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    snippetDrag.current = {
+      value,
+      pointerId: e.pointerId,
+      lastX: e.clientX,
+      lastY: e.clientY
+    };
+    document.body.style.cursor = "copy";
+  }
+
+  function finishSnippetDrag() {
+    const active = snippetDrag.current;
+    if (!active) return;
+    snippetDrag.current = null;
+    document.body.style.cursor = "";
+    if (!canEdit) return;
+    const hit = findOverlayAt(active.lastX, active.lastY);
+    if (!hit) return;
+    addTextAt(
+      hit.pageNum,
+      active.lastX - hit.rect.left,
+      active.lastY - hit.rect.top,
+      active.value,
+      false
+    );
+  }
+
   function onOverlayClick(e: ReactMouseEvent, pageNum: number) {
     const viewport = pageViewports[pageNum - 1];
     if (!viewport) return;
@@ -758,6 +805,11 @@ export default function App() {
   }
 
   function onPointerMove(e: ReactPointerEvent) {
+    if (snippetDrag.current) {
+      snippetDrag.current.lastX = e.clientX;
+      snippetDrag.current.lastY = e.clientY;
+      return;
+    }
     if (drag.kind === "none") return;
 
     const viewport = pageViewports[drag.page - 1];
@@ -820,6 +872,10 @@ export default function App() {
   }
 
   function onPointerUp() {
+    if (snippetDrag.current) {
+      finishSnippetDrag();
+      return;
+    }
     if (drag.kind !== "none") setDrag({ kind: "none" });
   }
 
@@ -1010,6 +1066,43 @@ export default function App() {
     }
 
     downloadBlob(out);
+  }
+
+  async function printPdf() {
+    if (!pdfBytes) return;
+    let out: Uint8Array;
+    try {
+      out = await exportFlattenedPdf({
+        originalPdfBytes: pdfBytes,
+        items,
+        signatures
+      });
+    } catch (err) {
+      console.error("Print PDF (render) failed:", err);
+      window.alert(t("print_failed"));
+      return;
+    }
+
+    const safeBytes = new Uint8Array(out);
+    const blob = new Blob([safeBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const frame = document.createElement("iframe");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    frame.src = url;
+    frame.onload = () => {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+      window.setTimeout(() => {
+        URL.revokeObjectURL(url);
+        frame.remove();
+      }, 1000);
+    };
+    document.body.appendChild(frame);
   }
 
   function addSnippet(value: string) {
@@ -1306,6 +1399,9 @@ export default function App() {
           >
             {themeChoice === "dark" ? <Sun size={18} weight="regular" /> : <Moon size={18} weight="regular" />}
           </button>
+          <button className="btn icon-btn" disabled={!canEdit} onClick={printPdf} title={t("print_pdf")} aria-label={t("print_pdf")}>
+            <Printer size={18} weight="regular" />
+          </button>
           <button className="btn icon-btn primary" disabled={!canEdit} onClick={exportPdf} title={t("export_pdf")} aria-label={t("export_pdf")}>
             <FloppyDisk size={18} weight="regular" />
           </button>
@@ -1444,8 +1540,10 @@ export default function App() {
                       className="snippets-use"
                       role="button"
                       tabIndex={0}
-                      draggable
+                      draggable={!isMac}
+                      onPointerDown={(e) => startSnippetDrag(e, entry)}
                       onDragStart={(e) => {
+                        if (isMac) return;
                         e.dataTransfer.setData("application/x-signstamp-snippet", entry);
                         e.dataTransfer.setData("text/plain", entry);
                         e.dataTransfer.setData("text", entry);
@@ -1498,6 +1596,13 @@ export default function App() {
                     />
                     <div
                       className={"overlay " + (tool === "text" || tool === "date" ? "cursor-text" : tool === "sign" || tool === "check" || tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "highlight" ? "cursor-sign" : "cursor-pan")}
+                      ref={(el) => {
+                        if (el) {
+                          overlayRefs.current.set(pageNum, el);
+                        } else {
+                          overlayRefs.current.delete(pageNum);
+                        }
+                      }}
                       onClick={(e) => {
                         if (e.target === e.currentTarget) setSelectedId(null);
                         onOverlayClick(e, pageNum);

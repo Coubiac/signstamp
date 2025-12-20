@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use tauri::Manager;
 use tauri::Emitter;
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -191,7 +192,29 @@ fn is_pdf_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn normalize_open_path(path: PathBuf) -> PathBuf {
+    if path.exists() {
+        return path;
+    }
+
+    let raw = match path.to_str() {
+        Some(raw) => raw,
+        None => return path,
+    };
+
+    if let Ok(url) = Url::parse(raw) {
+        if url.scheme() == "file" {
+            if let Ok(file_path) = url.to_file_path() {
+                return file_path;
+            }
+        }
+    }
+
+    path
+}
+
 fn emit_open_pdf(app: &tauri::AppHandle, path: PathBuf) {
+    let path = normalize_open_path(path);
     if !is_pdf_path(&path) || !path.exists() {
         return;
     }
