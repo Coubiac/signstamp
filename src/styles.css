@@ -738,3 +738,47 @@ canvas {
   display: inline-flex;
   gap: 8px;
 }
+
+@media print {
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  .toolbar,
+  .side,
+  .status,
+  .modal-backdrop {
+    display: none !important;
+  }
+
+  .main {
+    display: block;
+  }
+
+  .viewer {
+    padding: 0;
+    overflow: visible;
+  }
+
+  .page-wrap {
+    align-items: flex-start;
+    gap: 0;
+  }
+
+  .page-stage {
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .overlay-item {
+    border: none;
+  }
+
+  .handle {
+    display: none;
+  }
+}

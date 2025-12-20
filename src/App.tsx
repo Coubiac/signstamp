@@ -1070,39 +1070,7 @@ export default function App() {
 
   async function printPdf() {
     if (!pdfBytes) return;
-    let out: Uint8Array;
-    try {
-      out = await exportFlattenedPdf({
-        originalPdfBytes: pdfBytes,
-        items,
-        signatures
-      });
-    } catch (err) {
-      console.error("Print PDF (render) failed:", err);
-      window.alert(t("print_failed"));
-      return;
-    }
-
-    const safeBytes = new Uint8Array(out);
-    const blob = new Blob([safeBytes.buffer as ArrayBuffer], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const frame = document.createElement("iframe");
-    frame.style.position = "fixed";
-    frame.style.right = "0";
-    frame.style.bottom = "0";
-    frame.style.width = "0";
-    frame.style.height = "0";
-    frame.style.border = "0";
-    frame.src = url;
-    frame.onload = () => {
-      frame.contentWindow?.focus();
-      frame.contentWindow?.print();
-      window.setTimeout(() => {
-        URL.revokeObjectURL(url);
-        frame.remove();
-      }, 1000);
-    };
-    document.body.appendChild(frame);
+    window.print();
   }
 
   function addSnippet(value: string) {
