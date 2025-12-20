@@ -17,7 +17,12 @@ describe("exportFlattenedPdf", () => {
           page: 1,
           rect: { x: 50, y: 300, w: 200, h: 24 },
           value: "Hello",
-          fontSize: 12
+          fontSize: 12,
+          color: "#111111",
+          fontFamily: "sans",
+          bold: false,
+          underline: false,
+          strike: false
         }
       ],
       signatures: []
@@ -41,7 +46,8 @@ describe("exportFlattenedPdf", () => {
           page: 1,
           rect: { x: 100, y: 200, w: 20, h: 20 },
           value: "X",
-          fontSize: 14
+          fontSize: 14,
+          color: "#111111"
         }
       ],
       signatures: []
@@ -83,6 +89,49 @@ describe("exportFlattenedPdf", () => {
           naturalH: 1
         }
       ]
+    });
+
+    const loaded = await PDFDocument.load(out);
+    expect(loaded.getPageCount()).toBe(1);
+  });
+
+  it("exports a valid PDF with line, arrow, and highlight items", async () => {
+    const base = await PDFDocument.create();
+    base.addPage([400, 400]);
+    const baseBytes = await base.save();
+
+    const out = await exportFlattenedPdf({
+      originalPdfBytes: baseBytes,
+      items: [
+        {
+          id: "l1",
+          type: "line",
+          page: 1,
+          rect: { x: 20, y: 200, w: 120, h: 10 },
+          start: { x: 20, y: 205 },
+          end: { x: 140, y: 230 },
+          color: "#1d4ed8",
+          strokeWidth: 2
+        },
+        {
+          id: "a1",
+          type: "arrow",
+          page: 1,
+          rect: { x: 20, y: 150, w: 140, h: 20 },
+          start: { x: 20, y: 160 },
+          end: { x: 160, y: 180 },
+          color: "#dc2626",
+          strokeWidth: 2
+        },
+        {
+          id: "h1",
+          type: "highlight",
+          page: 1,
+          rect: { x: 40, y: 120, w: 140, h: 18 },
+          color: "#fde047"
+        }
+      ],
+      signatures: []
     });
 
     const loaded = await PDFDocument.load(out);

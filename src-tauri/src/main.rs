@@ -26,6 +26,14 @@ fn signatures_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("signatures.json"))
 }
 
+fn snippets_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir introuvable: {e}"))?;
+    Ok(dir.join("snippets.json"))
+}
+
 #[tauri::command]
 fn save_pdf_to_downloads(app: tauri::AppHandle, bytes: Vec<u8>, file_name: String) -> Result<String, String> {
     let downloads_dir = app
@@ -62,6 +70,30 @@ fn save_signatures(app: tauri::AppHandle, signatures: Vec<StoredSignature>) -> R
     }
 
     let bytes = serde_json::to_vec(&signatures).map_err(|e| format!("json invalide: {e}"))?;
+    std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn load_snippets(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let path = snippets_path(&app)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("lecture impossible: {e}"))?;
+    let snippets = serde_json::from_slice(&bytes).map_err(|e| format!("json invalide: {e}"))?;
+    Ok(snippets)
+}
+
+#[tauri::command]
+fn save_snippets(app: tauri::AppHandle, snippets: Vec<String>) -> Result<(), String> {
+    let path = snippets_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("creation dossier impossible: {e}"))?;
+    }
+
+    let bytes = serde_json::to_vec(&snippets).map_err(|e| format!("json invalide: {e}"))?;
     std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
     Ok(())
 }
@@ -115,7 +147,14 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![save_pdf_to_downloads, load_signatures, save_signatures, save_pdf_to_path])
+        .invoke_handler(tauri::generate_handler![
+            save_pdf_to_downloads,
+            load_signatures,
+            save_signatures,
+            load_snippets,
+            save_snippets,
+            save_pdf_to_path
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

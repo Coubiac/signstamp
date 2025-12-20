@@ -1,6 +1,7 @@
-export type Tool = "pan" | "text" | "date" | "check" | "sign";
+export type Tool = "pan" | "text" | "date" | "check" | "ellipse" | "line" | "arrow" | "highlight" | "sign";
 
 export type PdfRect = { x: number; y: number; w: number; h: number };
+export type PdfPoint = { x: number; y: number };
 
 export type SignatureAsset = {
   id: string;
@@ -19,6 +20,11 @@ export type TextItem = {
   rect: PdfRect;
   value: string;
   fontSize: number;
+  color: string;
+  fontFamily: "sans" | "serif" | "mono";
+  bold: boolean;
+  underline: boolean;
+  strike: boolean;
 };
 
 export type SignatureItem = {
@@ -36,6 +42,46 @@ export type CheckItem = {
   rect: PdfRect;
   value: string;
   fontSize: number;
+  color: string;
 };
 
-export type Item = TextItem | SignatureItem | CheckItem;
+export type EllipseItem = {
+  id: string;
+  type: "ellipse";
+  page: number;
+  rect: PdfRect;
+  color: string;
+  strokeWidth: number;
+};
+
+export type LineItem = {
+  id: string;
+  type: "line";
+  page: number;
+  rect: PdfRect;
+  start: PdfPoint;
+  end: PdfPoint;
+  color: string;
+  strokeWidth: number;
+};
+
+export type ArrowItem = {
+  id: string;
+  type: "arrow";
+  page: number;
+  rect: PdfRect;
+  start: PdfPoint;
+  end: PdfPoint;
+  color: string;
+  strokeWidth: number;
+};
+
+export type HighlightItem = {
+  id: string;
+  type: "highlight";
+  page: number;
+  rect: PdfRect;
+  color: string;
+};
+
+export type Item = TextItem | SignatureItem | CheckItem | EllipseItem | LineItem | ArrowItem | HighlightItem;
