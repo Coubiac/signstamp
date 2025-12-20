@@ -1070,7 +1070,12 @@ export default function App() {
 
   async function printPdf() {
     if (!pdfBytes) return;
-    window.print();
+    try {
+      await Promise.resolve(window.print());
+    } catch (err) {
+      console.error("Print failed:", err);
+      window.alert(t("print_failed"));
+    }
   }
 
   function addSnippet(value: string) {
