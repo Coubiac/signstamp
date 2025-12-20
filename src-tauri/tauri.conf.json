@@ -32,7 +32,15 @@
         "role": "Viewer",
         "mimeType": "application/pdf"
       }
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "desktopTemplate": "desktop-template.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "desktop-template.desktop"
+      }
+    }
   },
   "productName": "SignStamp",
   "mainBinaryName": "SignStamp",

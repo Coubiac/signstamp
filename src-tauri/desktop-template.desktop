@@ -1,0 +1,10 @@
+[Desktop Entry]
+Categories={{categories}}
+Comment={{comment}}
+Exec={{exec}} %U
+Icon={{icon}}
+Name={{name}}
+StartupWMClass={{name}}
+Terminal=false
+Type=Application
+MimeType=application/pdf;
