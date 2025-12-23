@@ -1,24 +1,31 @@
 # SignStamp
 
-Application de bureau (Tauri + React) pour remplir et signer des PDF.  
-Ce dépôt sert aussi de test de création "full IA" (conception, code, UI, refactor, tests).
+Application de bureau (Tauri + React) pour remplir, annoter, signer et imprimer des PDF.
 
 ## Fonctionnalités
-- Ouvrir un PDF (viewer multi‑pages avec scroll).
-- Ajouter du texte, une date du jour, une croix (case à cocher).
-- Importer une signature (PNG/JPG) et la placer/redimensionner.
-- Exporter un PDF aplati (texte + image intégrés).
-- Sauvegarde des signatures en local (Tauri).
-- UI responsive + thème clair/sombre selon le système.
-- Traductions automatiques selon la langue du système.
+- Ouvrir un PDF.
+- Afficher un PDF multi‑pages avec zoom et déplacement.
+- Ajouter texte, date auto, case à cocher, ellipse, ligne, flèche, surlignage.
+- Mettre en forme le texte (police, taille, gras/souligné/barré).
+- Choisir couleurs et épaisseur de trait pour les annotations.
+- Importer une signature PNG/JPG ou la dessiner, puis placer/redimensionner, renommer/supprimer.
+- Utiliser des textes rapides réutilisables (snippets) en glisser‑déposer.
+- Annuler, supprimer, vider les annotations.
+- Exporter un PDF aplati et imprimer via le dialogue système.
+- Basculer le thème clair/sombre et adapter la langue au système.
 
 ## Stack
-- Front: React + Vite
-- PDF: pdf.js (rendu) + pdf-lib (export)
-- Desktop: Tauri v2
-- Tests: Vitest + Testing Library
+- Utiliser React + Vite.
+- Rendre via pdf.js et exporter via pdf-lib.
+- Cibler Tauri v2.
+- Tester avec Vitest + Testing Library.
 
-## Démarrage rapide
+## Installation (utilisateur)
+- Télécharger l’installateur depuis les Releases GitHub (Windows/macOS/Linux).
+- Retrouver l’app dans “Ouvrir avec” pour les PDF après installation.
+- Ne fournir que l’app desktop Tauri (pas de version web hébergée).
+
+## Démarrage rapide (dev)
 ```bash
 npm install
 npm run tauri dev
@@ -26,40 +33,29 @@ npm run tauri dev
 
 ## Scripts
 ```bash
-npm run dev       # Vite (web)
-npm run tauri dev # App desktop
-npm run build     # Build web
-npm test          # Tests
+npm run tauri dev # Lancer l’app desktop
+npm test          # Lancer les tests
 ```
 
 ## Fonctionnement (résumé)
-- Le rendu PDF utilise pdf.js (worker) pour afficher chaque page.
-- Les annotations (texte/croix/signature) sont stockées en coordonnées PDF.
-- L’export crée un nouveau PDF aplati via pdf-lib.
-- Les signatures importées sont persistées dans `app_data` côté Tauri.
+- Utiliser pdf.js (worker) pour afficher chaque page.
+- Stocker les annotations en coordonnées PDF.
+- Créer un nouveau PDF aplati via pdf-lib.
+- Persister signatures et snippets côté Tauri (app_data).
 
 ## Structure
 ```
 src/
-  App.tsx           # UI + logique principale
-  i18n.ts           # Traductions
-  pdf/              # helpers PDF (coords, export)
+  App.tsx           # Regrouper l’UI + logique principale
+  i18n.ts           # Gérer les traductions
+  pdf/              # Regrouper les helpers PDF (coords, export)
 src-tauri/
-  src/main.rs       # commandes Tauri (save/load signatures, export)
+  src/main.rs       # Exposer les commandes Tauri (save/load, open-with, export)
 ```
 
 ## Développement & tests
-- Tests unitaires: coordonnées PDF + export.
-- Tests UI minimaux: actions critiques (export désactivé sans PDF, import signature actif).
-
-## Notes
-- En mode web, la persistance des signatures n’est pas active (Tauri uniquement).
-- L’export utilise un dialogue natif via Tauri (mode desktop).
-
-## Roadmap (optionnel)
-- Vignettes de pages + navigation rapide.
-- Outils supplémentaires (tampons, surlignage).
-- Gestion avancée des signatures (tags, suppression).
+- Tester les coordonnées PDF et l’export.
+- Tester les actions UI critiques (export désactivé sans PDF, import signature actif).
 
 ## Licence
 MIT.
