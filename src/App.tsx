@@ -1700,7 +1700,11 @@ export default function App() {
                               strokeLinecap="round"
                             />
                           </svg>
-                          <div className="handle" onPointerDown={(e) => startResize(item.id, e)} />
+                          <div
+                            className="handle"
+                            style={{ left: x2 - 7, top: y2 - 7, right: "auto", bottom: "auto" }}
+                            onPointerDown={(e) => startResize(item.id, e)}
+                          />
                         </div>
                       );
                     }
@@ -1754,7 +1758,11 @@ export default function App() {
                               fill={item.color}
                             />
                           </svg>
-                          <div className="handle" onPointerDown={(e) => startResize(item.id, e)} />
+                          <div
+                            className="handle"
+                            style={{ left: tipX - 7, top: tipY - 7, right: "auto", bottom: "auto" }}
+                            onPointerDown={(e) => startResize(item.id, e)}
+                          />
                         </div>
                       );
                     }
