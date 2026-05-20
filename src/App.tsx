@@ -332,8 +332,13 @@ export default function App() {
   }, []);
 
 
+  const HISTORY_LIMIT = 100;
+
   function pushHistory(snapshot: Item[]) {
-    setHistory(prev => prev.concat([snapshot]));
+    setHistory(prev => {
+      const next = prev.concat([snapshot]);
+      return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
+    });
   }
 
   function updateItems(
