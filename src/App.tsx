@@ -245,44 +245,45 @@ export default function App() {
   }, [selectedItem]);
 
   useEffect(() => {
-    if (isTauri()) {
-      let cancelled = false;
+    let cancelled = false;
 
-      async function loadSnippets() {
-        try {
+    async function loadSnippets() {
+      try {
+        if (isTauri()) {
           const stored = await invoke<string[]>("load_snippets");
-          if (!cancelled) {
-            setSnippets(stored);
-          }
-        } catch (err) {
-          console.error("Load snippets failed:", err);
-        } finally {
-          didLoadSnippets.current = true;
+          if (!cancelled) setSnippets(stored);
+          return;
         }
-      }
 
-      void loadSnippets();
-      return () => {
-        cancelled = true;
-      };
-    }
+        // Yield to the microtask queue : le save-effect du premier render
+        // doit s'exécuter avant qu'on flippe didLoadSnippets, sinon il écrit
+        // [] dans localStorage et écrase ce qu'on s'apprête à charger.
+        await Promise.resolve();
+        if (cancelled) return;
 
-    try {
-      const raw = localStorage.getItem("signstamp.snippets");
-      if (raw) {
+        const raw = localStorage.getItem("signstamp.snippets");
+        if (!raw) return;
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           setSnippets(parsed.filter((entry) => typeof entry === "string"));
         }
+      } catch (err) {
+        console.error("Load snippets failed:", err);
+      } finally {
+        didLoadSnippets.current = true;
       }
-    } catch {
-      // ignore storage errors
     }
+
+    void loadSnippets();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
+    if (!didLoadSnippets.current) return;
+
     if (isTauri()) {
-      if (!didLoadSnippets.current) return;
       void invoke("save_snippets", { snippets }).catch((err) => {
         console.error("Save snippets failed:", err);
       });
@@ -295,6 +296,7 @@ export default function App() {
       // ignore storage errors
     }
   }, [snippets]);
+
 
   useEffect(() => {
     if (!isTauri()) return;
