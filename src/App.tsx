@@ -114,7 +114,15 @@ export default function App() {
   const lastSignaturePoint = useRef<{ x: number; y: number } | null>(null);
   const [editingSignatureId, setEditingSignatureId] = useState<string | null>(null);
   const [editingSignatureName, setEditingSignatureName] = useState("");
-  const [themeChoice, setThemeChoice] = useState<"light" | "dark">("light");
+  const [themeChoice, setThemeChoice] = useState<"light" | "dark">(() => {
+    try {
+      const stored = localStorage.getItem("signstamp.theme");
+      if (stored === "light" || stored === "dark") return stored;
+    } catch {
+      // ignore storage errors
+    }
+    return "light";
+  });
   const openedPdfPaths = useRef(new Set<string>());
   const overlayRefs = useRef(new Map<number, HTMLDivElement>());
   const snippetDrag = useRef<{ value: string; pointerId: number; lastX: number; lastY: number } | null>(null);
@@ -186,17 +194,6 @@ export default function App() {
     document.documentElement.lang = lang;
     document.documentElement.dir = getDirection(lang);
   }, [lang]);
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("signstamp.theme");
-      if (stored === "light" || stored === "dark") {
-        setThemeChoice(stored);
-      }
-    } catch {
-      // ignore storage errors
-    }
-  }, []);
 
   useEffect(() => {
     try {
