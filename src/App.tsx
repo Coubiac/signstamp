@@ -843,10 +843,13 @@ export default function App() {
           };
           return { ...it, start, end, rect: rectFromPoints(start, end) };
         }
-        // resize depuis coin bas-droite (simple)
+        // resize depuis coin bas-droite : on garde le bord haut (y + h) fixe
+        // et on laisse le bord bas (rect.y) suivre la souris en PDF.
         const newW = Math.max(10, drag.startRect.w + dxPdf);
         const newH = Math.max(10, drag.startRect.h - dyPdf); // dyPdf inversé vs écran
-        return { ...it, rect: { ...it.rect, w: newW, h: newH } };
+        const topY = drag.startRect.y + drag.startRect.h;
+        const newY = topY - newH;
+        return { ...it, rect: { ...it.rect, y: newY, w: newW, h: newH } };
       }
 
       if (drag.kind === "draw") {
