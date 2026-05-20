@@ -403,12 +403,17 @@ export default function App() {
     const doc = pdfDoc;
     if (!doc) return;
     let cancelled = false;
+    let activeRenderTask: { cancel: () => void } | null = null;
 
     async function renderAllPages() {
       const viewports: PageViewport[] = [];
 
       for (let i = 1; i <= doc!.numPages; i += 1) {
+        if (cancelled) return;
+
         const p = await doc!.getPage(i);
+        if (cancelled) return;
+
         const vp = p.getViewport({ scale });
         viewports[i - 1] = vp;
 
@@ -424,7 +429,16 @@ export default function App() {
         canvas.style.height = `${Math.floor(vp.height)}px`;
 
         const renderTask = p.render({ canvasContext: ctx, viewport: vp });
-        await renderTask.promise;
+        activeRenderTask = renderTask;
+        try {
+          await renderTask.promise;
+        } catch (err: any) {
+          // pdf.js throws RenderingCancelledException quand on appelle .cancel()
+          if (err?.name === "RenderingCancelledException") return;
+          throw err;
+        } finally {
+          if (activeRenderTask === renderTask) activeRenderTask = null;
+        }
       }
 
       if (!cancelled) {
@@ -436,6 +450,7 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      activeRenderTask?.cancel();
     };
   }, [pdfDoc, scale]);
 
