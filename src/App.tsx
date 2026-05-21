@@ -17,6 +17,8 @@ import {
 import { bytesToDataUrl, fileToBytes, getImageNaturalSize } from "./utils/file";
 import { uid } from "./utils/uid";
 import { ItemOverlay } from "./components/items/ItemOverlay";
+import { useSnippets } from "./hooks/useSnippets";
+import { useSignatures } from "./hooks/useSignatures";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -58,15 +60,6 @@ type DragMode =
   | { kind: "resize"; id: string; page: number; startX: number; startY: number; startRect: { x: number; y: number; w: number; h: number }; startLine?: { start: PdfPoint; end: PdfPoint } }
   | { kind: "draw"; id: string; page: number; startX: number; startY: number; startPdf: { x: number; y: number }; overlayRect: DOMRect };
 
-type StoredSignature = {
-  id: string;
-  name: string;
-  mime: "image/png" | "image/jpeg";
-  bytes: number[];
-  naturalW: number;
-  naturalH: number;
-};
-
 export default function App() {
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const sigInputRef = useRef<HTMLInputElement | null>(null);
@@ -81,10 +74,10 @@ export default function App() {
   const [pageViewports, setPageViewports] = useState<PageViewport[]>([]);
   const [fileName, setFileName] = useState<string>("document.pdf");
 
-  const [signatures, setSignatures] = useState<SignatureAsset[]>([]);
   const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
-  const didLoadSignatures = useRef(false);
-  const didLoadSnippets = useRef(false);
+  const [signatures, setSignatures] = useSignatures({
+    onInitialLoad: (loaded) => setSelectedSignatureId(loaded[0]?.id ?? null)
+  });
 
   const [items, setItems] = useState<Item[]>([]);
   const [history, setHistory] = useState<Item[][]>([]);
@@ -92,7 +85,7 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [snippets, setSnippets] = useState<string[]>([]);
+  const [snippets, setSnippets] = useSnippets();
   const [snippetInput, setSnippetInput] = useState("");
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [isDrawingSignature, setIsDrawingSignature] = useState(false);
@@ -225,60 +218,6 @@ export default function App() {
       setDrawStrokeWidth(selectedItem.strokeWidth);
     }
   }, [selectedItem]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadSnippets() {
-      try {
-        if (isTauri()) {
-          const stored = await invoke<string[]>("load_snippets");
-          if (!cancelled) setSnippets(stored);
-          return;
-        }
-
-        // Yield to the microtask queue : le save-effect du premier render
-        // doit s'exécuter avant qu'on flippe didLoadSnippets, sinon il écrit
-        // [] dans localStorage et écrase ce qu'on s'apprête à charger.
-        await Promise.resolve();
-        if (cancelled) return;
-
-        const raw = localStorage.getItem("signstamp.snippets");
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setSnippets(parsed.filter((entry) => typeof entry === "string"));
-        }
-      } catch (err) {
-        console.error("Load snippets failed:", err);
-      } finally {
-        didLoadSnippets.current = true;
-      }
-    }
-
-    void loadSnippets();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!didLoadSnippets.current) return;
-
-    if (isTauri()) {
-      void invoke("save_snippets", { snippets }).catch((err) => {
-        console.error("Save snippets failed:", err);
-      });
-      return;
-    }
-
-    try {
-      localStorage.setItem("signstamp.snippets", JSON.stringify(snippets));
-    } catch {
-      // ignore storage errors
-    }
-  }, [snippets]);
-
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -441,62 +380,6 @@ export default function App() {
     };
   }, [pdfDoc, scale]);
 
-  useEffect(() => {
-    if (!isTauri()) return;
-    let cancelled = false;
-
-    async function loadSignatures() {
-      try {
-        const stored = await invoke<StoredSignature[]>("load_signatures");
-        const hydrated = await Promise.all(stored.map(async (sig) => {
-          const bytes = new Uint8Array(sig.bytes);
-          const dataUrl = await bytesToDataUrl(bytes, sig.mime);
-          return {
-            id: sig.id,
-            name: sig.name,
-            mime: sig.mime,
-            bytes,
-            dataUrl,
-            naturalW: sig.naturalW,
-            naturalH: sig.naturalH
-          } satisfies SignatureAsset;
-        }));
-
-        if (!cancelled) {
-          setSignatures(hydrated);
-          setSelectedSignatureId(hydrated[0]?.id ?? null);
-        }
-      } catch (err) {
-        console.error("Load signatures failed:", err);
-      } finally {
-        didLoadSignatures.current = true;
-      }
-    }
-
-    void loadSignatures();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isTauri()) return;
-    if (!didLoadSignatures.current) return;
-
-    const payload: StoredSignature[] = signatures.map(sig => ({
-      id: sig.id,
-      name: sig.name,
-      mime: sig.mime,
-      bytes: Array.from(sig.bytes),
-      naturalW: sig.naturalW,
-      naturalH: sig.naturalH
-    }));
-
-    void invoke("save_signatures", { signatures: payload }).catch(err => {
-      console.error("Save signatures failed:", err);
-    });
-  }, [signatures]);
 
   async function openPdfBytes(bytes: Uint8Array, name: string) {
     // pdf.js peut transférer le buffer vers le worker et le "neuter"
