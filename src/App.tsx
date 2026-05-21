@@ -3,6 +3,19 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import type { Item, SignatureAsset, Tool, TextItem, PdfPoint, PdfRect } from "./types";
 import { exportFlattenedPdf } from "./pdf/exportPdf";
 import { pdfRectToCss, pxDeltaToPdfDelta, pxSizeToPdfSize } from "./pdf/coords";
+import {
+  CHECK_DEFAULTS,
+  DATE_DEFAULTS,
+  HANDLE_HALF_PX,
+  HIGHLIGHT_OPACITY,
+  HISTORY_LIMIT,
+  MIN_RESIZE_PDF,
+  OBJECT_URL_REVOKE_MS,
+  PATH_REOPEN_DEBOUNCE_MS,
+  SIGNATURE_DEFAULTS,
+  TEXT_DEFAULTS,
+  ZOOM
+} from "./constants";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -92,7 +105,7 @@ export default function App() {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
-  const [scale, setScale] = useState(1.25);
+  const [scale, setScale] = useState(ZOOM.default);
   const [pageViewports, setPageViewports] = useState<PageViewport[]>([]);
   const [fileName, setFileName] = useState<string>("document.pdf");
 
@@ -329,8 +342,6 @@ export default function App() {
   }, []);
 
 
-  const HISTORY_LIMIT = 100;
-
   function pushHistory(snapshot: Item[]) {
     setHistory(prev => {
       const next = prev.concat([snapshot]);
@@ -551,7 +562,7 @@ export default function App() {
     if (!key) return;
     if (openedPdfPaths.current.has(key)) return;
     openedPdfPaths.current.add(key);
-    window.setTimeout(() => openedPdfPaths.current.delete(key), 5000);
+    window.setTimeout(() => openedPdfPaths.current.delete(key), PATH_REOPEN_DEBOUNCE_MS);
     void openPdfFromPath(path).catch((err) => {
       console.error("Open PDF from path failed:", err);
     });
@@ -635,7 +646,7 @@ export default function App() {
 
     function addCheckItem() {
       const [xPdf, yPdf] = viewport.convertToPdfPoint(xPx, yPx);
-      const { wPdf, hPdf } = pxSizeToPdfSize(22, 22, viewport);
+      const { wPdf, hPdf } = pxSizeToPdfSize(CHECK_DEFAULTS.sizePx, CHECK_DEFAULTS.sizePx, viewport);
 
       const id = uid();
       appendItem({
@@ -644,7 +655,7 @@ export default function App() {
         page: pageNum,
         rect: { x: xPdf, y: yPdf - hPdf, w: wPdf, h: hPdf },
         value: "X",
-        fontSize: 16,
+        fontSize: CHECK_DEFAULTS.fontSize,
         color: inkColor
       });
       setSelectedId(id);
@@ -652,14 +663,14 @@ export default function App() {
 
     // Outil texte
     if (tool === "text") {
-      addTextItem("", 220, 28, textFontSize, true);
+      addTextItem("", TEXT_DEFAULTS.widthPx, TEXT_DEFAULTS.heightPx, textFontSize, true);
       return;
     }
 
     // Outil date
     if (tool === "date") {
       const now = new Date();
-      addTextItem(formatLocaleDate(lang, now), 160, 26, textFontSize);
+      addTextItem(formatLocaleDate(lang, now), DATE_DEFAULTS.widthPx, DATE_DEFAULTS.heightPx, textFontSize);
       return;
     }
 
@@ -679,9 +690,9 @@ export default function App() {
       const [xPdf, yPdf] = viewport.convertToPdfPoint(xPx, yPx);
 
       // taille par défaut en pixels, puis conversion en PDF
-      const targetWPx = 220;
+      const targetWPx = SIGNATURE_DEFAULTS.widthPx;
       const ratio = sig.naturalH > 0 ? sig.naturalW / sig.naturalH : 3;
-      const targetHPx = Math.max(50, Math.round(targetWPx / Math.max(1, ratio)));
+      const targetHPx = Math.max(SIGNATURE_DEFAULTS.minHeightPx, Math.round(targetWPx / Math.max(1, ratio)));
 
       const { wPdf, hPdf } = pxSizeToPdfSize(targetWPx, targetHPx, viewport);
 
@@ -865,8 +876,8 @@ export default function App() {
         }
         // resize depuis coin bas-droite : on garde le bord haut (y + h) fixe
         // et on laisse le bord bas (rect.y) suivre la souris en PDF.
-        const newW = Math.max(10, drag.startRect.w + dxPdf);
-        const newH = Math.max(10, drag.startRect.h - dyPdf); // dyPdf inversé vs écran
+        const newW = Math.max(MIN_RESIZE_PDF.width, drag.startRect.w + dxPdf);
+        const newH = Math.max(MIN_RESIZE_PDF.height, drag.startRect.h - dyPdf); // dyPdf inversé vs écran
         const topY = drag.startRect.y + drag.startRect.h;
         const newY = topY - newH;
         return { ...it, rect: { ...it.rect, y: newY, w: newW, h: newH } };
@@ -1051,7 +1062,7 @@ export default function App() {
       a.click();
       a.remove();
 
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_REVOKE_MS);
     };
 
     let out: Uint8Array;
@@ -1153,7 +1164,7 @@ export default function App() {
     if (!viewport) return;
 
     const [xPdf, yPdf] = viewport.convertToPdfPoint(xPx, yPx);
-    const { wPdf, hPdf } = pxSizeToPdfSize(220, 28, viewport);
+    const { wPdf, hPdf } = pxSizeToPdfSize(TEXT_DEFAULTS.widthPx, TEXT_DEFAULTS.heightPx, viewport);
     const id = uid();
     appendItem({
       id,
@@ -1200,11 +1211,11 @@ export default function App() {
 
           <span className="sep" />
 
-          <button className="btn icon-btn" disabled={!canEdit} onClick={() => setScale(s => Math.max(0.5, Math.round((s - 0.1) * 100) / 100))} title={t("zoom_out")} aria-label={t("zoom_out")}>
+          <button className="btn icon-btn" disabled={!canEdit} onClick={() => setScale(s => Math.max(ZOOM.min, Math.round((s - ZOOM.step) * 100) / 100))} title={t("zoom_out")} aria-label={t("zoom_out")}>
             <Minus size={18} weight="regular" />
           </button>
           <span className="meta">{canEdit ? `${Math.round(scale * 100)}%` : "--"}</span>
-          <button className="btn icon-btn" disabled={!canEdit} onClick={() => setScale(s => Math.min(4, Math.round((s + 0.1) * 100) / 100))} title={t("zoom_in")} aria-label={t("zoom_in")}>
+          <button className="btn icon-btn" disabled={!canEdit} onClick={() => setScale(s => Math.min(ZOOM.max, Math.round((s + ZOOM.step) * 100) / 100))} title={t("zoom_in")} aria-label={t("zoom_in")}>
             <Plus size={18} weight="regular" />
           </button>
         </div>
@@ -1707,7 +1718,7 @@ export default function App() {
                           </svg>
                           <div
                             className="handle"
-                            style={{ left: x2 - 7, top: y2 - 7, right: "auto", bottom: "auto" }}
+                            style={{ left: x2 - HANDLE_HALF_PX, top: y2 - HANDLE_HALF_PX, right: "auto", bottom: "auto" }}
                             onPointerDown={(e) => startResize(item.id, e)}
                           />
                         </div>
@@ -1765,7 +1776,7 @@ export default function App() {
                           </svg>
                           <div
                             className="handle"
-                            style={{ left: tipX - 7, top: tipY - 7, right: "auto", bottom: "auto" }}
+                            style={{ left: tipX - HANDLE_HALF_PX, top: tipY - HANDLE_HALF_PX, right: "auto", bottom: "auto" }}
                             onPointerDown={(e) => startResize(item.id, e)}
                           />
                         </div>
@@ -1773,7 +1784,7 @@ export default function App() {
                     }
 
                     if (item.type === "highlight") {
-                      const fill = hexToRgba(item.color ?? highlightDefault, 0.35);
+                      const fill = hexToRgba(item.color ?? highlightDefault, HIGHLIGHT_OPACITY);
                       return (
                         <div
                           key={item.id}

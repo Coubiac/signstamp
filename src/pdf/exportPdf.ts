@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
 import type { Item, SignatureAsset } from "../types";
+import { HIGHLIGHT_OPACITY } from "../constants";
 
 function hexToRgb(color: string) {
   const value = color.replace("#", "").trim();
@@ -147,7 +148,7 @@ export async function exportFlattenedPdf(args: {
         width: w,
         height: h,
         color: hexToRgb(item.color),
-        opacity: 0.35
+        opacity: HIGHLIGHT_OPACITY
       });
     }
 
