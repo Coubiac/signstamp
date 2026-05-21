@@ -631,11 +631,18 @@ canvas {
   border-color: rgba(127, 127, 127, 0.4);
 }
 
-.overlay-item.signature img {
+.overlay-item.signature img,
+.overlay-item.paraph img {
   width: 100%;
   height: 100%;
   object-fit: contain;
   pointer-events: none;
+}
+
+/* Dashed border signals that the paraph is "linked" across every
+ * page — moving / resizing it on any page updates all others. */
+.overlay-item.paraph {
+  border: 1px dashed rgba(120, 120, 120, 0.5);
 }
 
 .overlay-item.text {

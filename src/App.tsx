@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import type { Item, SignatureAsset, Tool, TextItem } from "./types";
+import type { Item, Paraph, PdfRect, SignatureAsset, Tool, TextItem } from "./types";
 import { exportFlattenedPdf } from "./pdf/exportPdf";
-import { pxSizeToPdfSize } from "./pdf/coords";
+import { pxDeltaToPdfDelta, pxSizeToPdfSize } from "./pdf/coords";
 import {
   CHECK_DEFAULTS,
   DATE_DEFAULTS,
   HISTORY_LIMIT,
+  MIN_RESIZE_PDF,
   OBJECT_URL_REVOKE_MS,
   PATH_REOPEN_DEBOUNCE_MS,
   SIGNATURE_DEFAULTS,
@@ -16,8 +17,10 @@ import {
 import { bytesToDataUrl, fileToBytes, getImageNaturalSize } from "./utils/file";
 import { uid } from "./utils/uid";
 import { ItemOverlay } from "./components/items/ItemOverlay";
+import { ParaphOverlay } from "./components/items/ParaphOverlay";
 import { useSnippets } from "./hooks/useSnippets";
 import { useSignatures } from "./hooks/useSignatures";
+import { useParaphAssets } from "./hooks/useParaphAssets";
 import { useDragMachine } from "./hooks/useDragMachine";
 import { usePdfDocument } from "./hooks/usePdfDocument";
 import { useTextStyle } from "./hooks/useTextStyle";
@@ -43,6 +46,7 @@ import {
   Plus,
   Printer,
   Signature as SignatureIcon,
+  Stamp,
   Sun,
   TextB,
   TextStrikethrough,
@@ -55,6 +59,7 @@ import {
 export default function App() {
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const sigInputRef = useRef<HTMLInputElement | null>(null);
+  const paraphInputRef = useRef<HTMLInputElement | null>(null);
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [tool, setTool] = useState<Tool>("pan");
@@ -82,6 +87,26 @@ export default function App() {
   const [signatures, setSignatures] = useSignatures({
     onInitialLoad: (loaded) => setSelectedSignatureId(loaded[0]?.id ?? null)
   });
+  const [selectedParaphId, setSelectedParaphId] = useState<string | null>(null);
+  const [paraphs, setParaphs] = useParaphAssets({
+    onInitialLoad: (loaded) => setSelectedParaphId(loaded[0]?.id ?? null)
+  });
+  const [editingParaphId, setEditingParaphId] = useState<string | null>(null);
+  const [editingParaphName, setEditingParaphName] = useState("");
+  /** The single paraph stamped on every page, or null if none. */
+  const [paraph, setParaph] = useState<Paraph | null>(null);
+  const [paraphSelected, setParaphSelected] = useState(false);
+  /** Mini drag-state for the paraph — parallel to the item drag machine
+   *  because the paraph lives outside `items[]`. The `page` captured at
+   *  drag-start drives the px→PDF conversion ; since all viewports share
+   *  the same scale, the source page does not change the math. */
+  const paraphDragRef = useRef<{
+    kind: "move" | "resize";
+    page: number;
+    startX: number;
+    startY: number;
+    startRect: PdfRect;
+  } | null>(null);
 
   const [items, setItems] = useState<Item[]>([]);
   const [history, setHistory] = useState<Item[][]>([]);
@@ -90,7 +115,9 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [snippets, setSnippets] = useSnippets();
   const [snippetInput, setSnippetInput] = useState("");
-  const [showSignaturePad, setShowSignaturePad] = useState(false);
+  /** Which "draw with the trackpad" pad is open, if any. The same
+   *  modal hosts the canvas — only the save destination differs. */
+  const [padMode, setPadMode] = useState<"signature" | "paraph" | null>(null);
   const [isDrawingSignature, setIsDrawingSignature] = useState(false);
   const lastSignaturePoint = useRef<{ x: number; y: number } | null>(null);
   const [editingSignatureId, setEditingSignatureId] = useState<string | null>(null);
@@ -132,6 +159,12 @@ export default function App() {
     return map;
   }, [formPlacements]);
 
+  // Mutual exclusion : selecting an item drops the paraph selection so
+  // the two never appear "both selected" at once.
+  useEffect(() => {
+    if (selectedId !== null) setParaphSelected(false);
+  }, [selectedId]);
+
   const lang = detectLocale();
   const t = makeTranslator(lang);
   const pagesLabel = (count: number) => `${count} ${count === 1 ? t("pages_singular") : t("pages_plural")}`;
@@ -145,6 +178,7 @@ export default function App() {
     line: t("tool_line"),
     arrow: t("tool_arrow"),
     highlight: t("tool_highlight"),
+    paraph: t("tool_paraph"),
     sign: t("tool_sign")
   };
 
@@ -194,7 +228,7 @@ export default function App() {
   }, [themeChoice]);
 
   useEffect(() => {
-    if (!showSignaturePad) return;
+    if (!padMode) return;
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -211,7 +245,7 @@ export default function App() {
     ctx.strokeStyle = "#111111";
     ctx.lineWidth = 2;
     ctx.clearRect(0, 0, rect.width, rect.height);
-  }, [showSignaturePad]);
+  }, [padMode]);
 
   useEffect(() => {
     if (!selectedItem) return;
@@ -341,6 +375,11 @@ export default function App() {
   }
 
   function deleteSelected() {
+    if (paraphSelected) {
+      setParaph(null);
+      setParaphSelected(false);
+      return;
+    }
     if (!selectedId) return;
     updateItems(prev => prev.filter(i => i.id !== selectedId), { record: true });
     if (editingId === selectedId) {
@@ -361,6 +400,8 @@ export default function App() {
     setEditingId(null);
     setEditingValue("");
     setSelectedId(null);
+    setParaph(null);
+    setParaphSelected(false);
     resetDrag();
   }
 
@@ -528,6 +569,28 @@ export default function App() {
       setTool("pan");
       return;
     }
+
+    // Outil paraphe : un seul paraphe logique stamped sur toutes les
+    // pages — un clic place ou repositionne ce master.
+    if (tool === "paraph") {
+      if (!selectedParaphId) return;
+      const asset = paraphs.find(p => p.id === selectedParaphId);
+      if (!asset) return;
+
+      const [xPdf, yPdf] = viewport.convertToPdfPoint(xPx, yPx);
+      const targetWPx = SIGNATURE_DEFAULTS.widthPx;
+      const ratio = asset.naturalH > 0 ? asset.naturalW / asset.naturalH : 3;
+      const targetHPx = Math.max(SIGNATURE_DEFAULTS.minHeightPx, Math.round(targetWPx / Math.max(1, ratio)));
+      const { wPdf, hPdf } = pxSizeToPdfSize(targetWPx, targetHPx, viewport);
+
+      setParaph({
+        assetId: selectedParaphId,
+        rect: { x: xPdf - wPdf / 2, y: yPdf - hPdf / 2, w: wPdf, h: hPdf }
+      });
+      setParaphSelected(true);
+      setTool("pan");
+      return;
+    }
   }
 
   function startDraw(e: ReactPointerEvent, pageNum: number) {
@@ -568,10 +631,71 @@ export default function App() {
     });
   }
 
+  function startParaphMove(e: ReactPointerEvent, pageNum: number) {
+    if (!paraph) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setSelectedId(null);
+    setParaphSelected(true);
+    paraphDragRef.current = {
+      kind: "move",
+      page: pageNum,
+      startX: e.clientX,
+      startY: e.clientY,
+      startRect: { ...paraph.rect }
+    };
+  }
+
+  function startParaphResize(e: ReactPointerEvent, pageNum: number) {
+    if (!paraph) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setSelectedId(null);
+    setParaphSelected(true);
+    paraphDragRef.current = {
+      kind: "resize",
+      page: pageNum,
+      startX: e.clientX,
+      startY: e.clientY,
+      startRect: { ...paraph.rect }
+    };
+  }
+
+  function applyParaphDrag(clientX: number, clientY: number) {
+    const drag = paraphDragRef.current;
+    if (!drag) return;
+    const viewport = pageViewports[drag.page - 1];
+    if (!viewport) return;
+    const { dxPdf, dyPdf } = pxDeltaToPdfDelta(clientX - drag.startX, clientY - drag.startY, viewport);
+    if (drag.kind === "move") {
+      setParaph(prev => prev ? {
+        ...prev,
+        rect: { ...prev.rect, x: drag.startRect.x + dxPdf, y: drag.startRect.y + dyPdf }
+      } : prev);
+    } else {
+      // Bottom-right corner handle : anchor the top edge so the bottom
+      // and right edges follow the cursor (mirrors the item resize math).
+      const newW = Math.max(MIN_RESIZE_PDF.width, drag.startRect.w + dxPdf);
+      const newH = Math.max(MIN_RESIZE_PDF.height, drag.startRect.h - dyPdf);
+      const topY = drag.startRect.y + drag.startRect.h;
+      const newY = topY - newH;
+      setParaph(prev => prev ? {
+        ...prev,
+        rect: { ...prev.rect, y: newY, w: newW, h: newH }
+      } : prev);
+    }
+  }
+
   function onPointerMove(e: ReactPointerEvent) {
     if (snippetDrag.current) {
       snippetDrag.current.lastX = e.clientX;
       snippetDrag.current.lastY = e.clientY;
+      return;
+    }
+    if (paraphDragRef.current) {
+      applyParaphDrag(e.clientX, e.clientY);
       return;
     }
     handleDragPointerMove(e);
@@ -580,6 +704,10 @@ export default function App() {
   function onPointerUp() {
     if (snippetDrag.current) {
       finishSnippetDrag();
+      return;
+    }
+    if (paraphDragRef.current) {
+      paraphDragRef.current = null;
       return;
     }
     handleDragPointerUp();
@@ -637,6 +765,60 @@ export default function App() {
     }
     setEditingSignatureId(null);
     setEditingSignatureName("");
+  }
+
+  async function addParaphFromBytes(bytes: Uint8Array, name: string) {
+    const mime = "image/png" as const;
+    const dataUrl = await bytesToDataUrl(bytes, mime);
+    const { w, h } = await getImageNaturalSize(dataUrl);
+
+    const asset: SignatureAsset = {
+      id: uid(),
+      name,
+      mime,
+      bytes,
+      dataUrl,
+      naturalW: w,
+      naturalH: h
+    };
+
+    setParaphs(prev => [asset, ...prev]);
+    setSelectedParaphId(asset.id);
+  }
+
+  async function importParaph(file: File) {
+    const bytes = await fileToBytes(file);
+    const mime = (file.type === "image/png" ? "image/png" : "image/jpeg") as "image/png" | "image/jpeg";
+    const dataUrl = await bytesToDataUrl(bytes, mime);
+    const { w, h } = await getImageNaturalSize(dataUrl);
+
+    const asset: SignatureAsset = {
+      id: uid(),
+      name: file.name || "paraph",
+      mime,
+      bytes,
+      dataUrl,
+      naturalW: w,
+      naturalH: h
+    };
+
+    setParaphs(prev => [asset, ...prev]);
+    setSelectedParaphId(asset.id);
+  }
+
+  function startRenameParaph(asset: SignatureAsset) {
+    setEditingParaphId(asset.id);
+    setEditingParaphName(asset.name);
+  }
+
+  function commitRenameParaph(apply: boolean) {
+    if (!editingParaphId) return;
+    const trimmed = editingParaphName.trim();
+    if (apply && trimmed) {
+      setParaphs(prev => prev.map(p => p.id === editingParaphId ? { ...p, name: trimmed } : p));
+    }
+    setEditingParaphId(null);
+    setEditingParaphName("");
   }
 
   function clearSignaturePad() {
@@ -700,11 +882,12 @@ export default function App() {
     (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
   }
 
-  async function saveSignatureDrawing() {
+  async function savePadDrawing() {
+    if (!padMode) return;
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
     if (isSignatureBlank()) {
-      window.alert(t("signature_empty"));
+      window.alert(t(padMode === "signature" ? "signature_empty" : "paraph_empty"));
       return;
     }
 
@@ -712,9 +895,13 @@ export default function App() {
     if (!blob) return;
     const buf = await blob.arrayBuffer();
     const bytes = new Uint8Array(buf);
-    const name = `signature-drawn-${new Date().toISOString().slice(0, 10)}.png`;
-    await addSignatureFromBytes(bytes, name);
-    setShowSignaturePad(false);
+    const datePart = new Date().toISOString().slice(0, 10);
+    if (padMode === "signature") {
+      await addSignatureFromBytes(bytes, `signature-drawn-${datePart}.png`);
+    } else {
+      await addParaphFromBytes(bytes, `paraph-drawn-${datePart}.png`);
+    }
+    setPadMode(null);
   }
 
   async function exportPdf() {
@@ -743,6 +930,7 @@ export default function App() {
         originalPdfBytes: pdfBytes,
         items,
         signatures,
+        paraph: paraph && paraphAsset ? { paraph, asset: paraphAsset } : null,
         formValues
       });
     } catch (err) {
@@ -855,6 +1043,8 @@ export default function App() {
 
   const canEdit = Boolean(pdfDoc);
   const canSign = canEdit && signatures.length > 0;
+  const canParaph = canEdit && paraphs.length > 0;
+  const paraphAsset = paraph ? paraphs.find(p => p.id === paraph.assetId) ?? null : null;
 
   return (
     <div className="app" onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
@@ -904,6 +1094,9 @@ export default function App() {
             </button>
             <button className={"btn tool-btn " + (tool === "sign" ? "active" : "")} disabled={!canSign} onClick={() => setTool("sign")} title={t("tool_sign")} aria-label={t("tool_sign")}>
               <SignatureIcon size={18} weight="regular" />
+            </button>
+            <button className={"btn tool-btn " + (tool === "paraph" ? "active" : "")} disabled={!canParaph} onClick={() => setTool("paraph")} title={t("tool_paraph")} aria-label={t("tool_paraph")}>
+              <Stamp size={18} weight="regular" />
             </button>
           </div>
 
@@ -1035,7 +1228,7 @@ export default function App() {
           </button>
           <button
             className="btn icon-btn"
-            disabled={!canEdit || !selectedId}
+            disabled={!canEdit || (!selectedId && !paraphSelected)}
             onClick={deleteSelected}
             title={t("delete")}
             aria-label={t("delete")}
@@ -1044,8 +1237,11 @@ export default function App() {
           </button>
           <button
             className="btn icon-btn danger"
-            disabled={!canEdit || items.length === 0}
-            onClick={() => updateItems([], { record: true })}
+            disabled={!canEdit || (items.length === 0 && !paraph)}
+            onClick={() => {
+              updateItems([], { record: true });
+              setParaph(null);
+            }}
             title={t("clear_all")}
             aria-label={t("clear_all")}
           >
@@ -1090,6 +1286,18 @@ export default function App() {
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) void importSignature(f);
+            e.currentTarget.value = "";
+          }}
+        />
+
+        <input
+          ref={paraphInputRef}
+          type="file"
+          accept="image/png,image/jpeg"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void importParaph(f);
             e.currentTarget.value = "";
           }}
         />
@@ -1158,9 +1366,77 @@ export default function App() {
             <FileArrowUp size={16} weight="regular" />
             <span>{t("import_signature")}</span>
           </button>
-          <button className="btn sig-import" onClick={() => setShowSignaturePad(true)}>
+          <button className="btn sig-import" onClick={() => setPadMode("signature")}>
             <TextT size={16} weight="regular" />
             <span>{t("draw_signature")}</span>
+          </button>
+
+          <h3>{t("paraphs")}</h3>
+          {paraphs.length === 0 ? (
+            <p className="hint">{t("paraphs_hint")}</p>
+          ) : (
+            <div className="siglist">
+              {paraphs.map(asset => (
+                <div
+                  key={asset.id}
+                  className={"sigitem " + (asset.id === selectedParaphId ? "selected" : "")}
+                  title={asset.name}
+                >
+                  <button
+                    className="sigitem-body"
+                    onClick={() => setSelectedParaphId(asset.id)}
+                    onDoubleClick={() => startRenameParaph(asset)}
+                  >
+                    <img src={asset.dataUrl} alt={asset.name} />
+                    {editingParaphId === asset.id ? (
+                      <input
+                        className="sigitem-input"
+                        value={editingParaphName}
+                        onChange={(e) => setEditingParaphName(e.target.value)}
+                        onBlur={() => commitRenameParaph(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitRenameParaph(true);
+                          }
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            commitRenameParaph(false);
+                          }
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span>{asset.name}</span>
+                    )}
+                  </button>
+                  <button
+                    className="sigitem-remove"
+                    onClick={() => {
+                      setParaphs(prev => prev.filter(p => p.id !== asset.id));
+                      if (selectedParaphId === asset.id) {
+                        setSelectedParaphId(null);
+                      }
+                      if (paraph?.assetId === asset.id) {
+                        setParaph(null);
+                      }
+                    }}
+                    title={t("remove_paraph")}
+                    aria-label={t("remove_paraph")}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button className="btn sig-import" onClick={() => paraphInputRef.current?.click()}>
+            <FileArrowUp size={16} weight="regular" />
+            <span>{t("import_paraph")}</span>
+          </button>
+          <button className="btn sig-import" onClick={() => setPadMode("paraph")}>
+            <TextT size={16} weight="regular" />
+            <span>{t("draw_paraph")}</span>
           </button>
 
           <div className="panel snippets">
@@ -1268,7 +1544,10 @@ export default function App() {
                         }
                       }}
                       onClick={(e) => {
-                        if (e.target === e.currentTarget) setSelectedId(null);
+                        if (e.target === e.currentTarget) {
+                          setSelectedId(null);
+                          setParaphSelected(false);
+                        }
                         onOverlayClick(e, pageNum);
                       }}
                       onDragEnter={(e) => {
@@ -1323,6 +1602,16 @@ export default function App() {
                           onStartResize={(e) => startResize(item.id, e)}
                         />
                       ))}
+                      {viewport && paraph && (
+                        <ParaphOverlay
+                          paraph={paraph}
+                          viewport={viewport}
+                          asset={paraphAsset}
+                          isSelected={paraphSelected}
+                          onStartMove={(e) => startParaphMove(e, pageNum)}
+                          onStartResize={(e) => startParaphResize(e, pageNum)}
+                        />
+                      )}
                     </div>
                   </div>
                 );
@@ -1341,16 +1630,16 @@ export default function App() {
         </span>
       </footer>
 
-      {showSignaturePad && (
-        <div className="modal-backdrop" onClick={() => setShowSignaturePad(false)}>
+      {padMode && (
+        <div className="modal-backdrop" onClick={() => setPadMode(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{t("draw_signature_title")}</h3>
-              <button className="btn icon-btn" onClick={() => setShowSignaturePad(false)} aria-label={t("signature_cancel")}>
+              <h3>{t(padMode === "signature" ? "draw_signature_title" : "draw_paraph_title")}</h3>
+              <button className="btn icon-btn" onClick={() => setPadMode(null)} aria-label={t("signature_cancel")}>
                 ×
               </button>
             </div>
-            <p className="hint">{t("draw_signature_hint")}</p>
+            <p className="hint">{t(padMode === "signature" ? "draw_signature_hint" : "draw_paraph_hint")}</p>
             <div className="signature-pad">
               <canvas
                 ref={signatureCanvasRef}
@@ -1363,8 +1652,8 @@ export default function App() {
             <div className="modal-actions">
               <button className="btn" onClick={clearSignaturePad}>{t("signature_clear")}</button>
               <div className="modal-actions-right">
-                <button className="btn" onClick={() => setShowSignaturePad(false)}>{t("signature_cancel")}</button>
-                <button className="btn primary" onClick={saveSignatureDrawing}>{t("signature_save")}</button>
+                <button className="btn" onClick={() => setPadMode(null)}>{t("signature_cancel")}</button>
+                <button className="btn primary" onClick={savePadDrawing}>{t("signature_save")}</button>
               </div>
             </div>
           </div>

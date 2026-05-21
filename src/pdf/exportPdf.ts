@@ -9,7 +9,7 @@ import {
   rgb,
   degrees
 } from "pdf-lib";
-import type { Item, SignatureAsset } from "../types";
+import type { Item, Paraph, SignatureAsset } from "../types";
 import { HIGHLIGHT_OPACITY } from "../constants";
 import { parseHexColor } from "../utils/color";
 
@@ -30,13 +30,19 @@ export async function exportFlattenedPdf(args: {
   items: Item[];
   signatures: SignatureAsset[];
   /**
+   * Optional paraph (initials) to stamp on every page. The image is
+   * embedded once and drawn at the same rect on every page so the
+   * exported PDF mirrors the on-screen multi-page projection.
+   */
+  paraph?: { paraph: Paraph; asset: SignatureAsset } | null;
+  /**
    * Native form field values to write back into the document's
    * AcroForm before the overlay items are stamped. Missing entries
    * leave the underlying field untouched.
    */
   formValues?: FormValues;
 }): Promise<Uint8Array> {
-  const { originalPdfBytes, items, signatures, formValues } = args;
+  const { originalPdfBytes, items, signatures, paraph, formValues } = args;
 
   const pdfDoc = await PDFDocument.load(originalPdfBytes);
 
@@ -238,6 +244,23 @@ export async function exportFlattenedPdf(args: {
         width: w,
         height: h,
         rotate: degrees(0)
+      });
+    }
+  }
+
+  // Stamp the paraph on every page after the items so initials sit
+  // on top of any background drawing the user added.
+  if (paraph) {
+    const { paraph: master, asset } = paraph;
+    const embedded = asset.mime === "image/png"
+      ? await pdfDoc.embedPng(asset.bytes)
+      : await pdfDoc.embedJpg(asset.bytes);
+    for (const page of pdfDoc.getPages()) {
+      page.drawImage(embedded, {
+        x: master.rect.x,
+        y: master.rect.y,
+        width: master.rect.w,
+        height: master.rect.h
       });
     }
   }

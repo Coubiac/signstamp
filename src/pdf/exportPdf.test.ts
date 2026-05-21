@@ -252,6 +252,60 @@ describe("exportFlattenedPdf", () => {
     expect(loaded.getPageCount()).toBe(1);
   });
 
+  it("stamps the paraph on every page", async () => {
+    // 3-page doc so we can check the paraph really does multi-page.
+    const base = await PDFDocument.create();
+    base.addPage([400, 400]);
+    base.addPage([400, 400]);
+    base.addPage([400, 400]);
+    const baseBytes = await base.save();
+
+    const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6XW1YkAAAAASUVORK5CYII=";
+    const pngBytes = new Uint8Array(
+      Array.from(atob(base64), (char) => char.charCodeAt(0))
+    );
+
+    const out = await exportFlattenedPdf({
+      originalPdfBytes: baseBytes,
+      items: [],
+      signatures: [],
+      paraph: {
+        paraph: {
+          assetId: "p-1",
+          rect: { x: 300, y: 20, w: 60, h: 30 }
+        },
+        asset: {
+          id: "p-1",
+          name: "initials.png",
+          mime: "image/png",
+          bytes: pngBytes,
+          dataUrl: "data:image/png;base64,",
+          naturalW: 1,
+          naturalH: 1
+        }
+      }
+    });
+
+    const loaded = await PDFDocument.load(out);
+    expect(loaded.getPageCount()).toBe(3);
+  });
+
+  it("ignores the paraph argument when null", async () => {
+    const base = await PDFDocument.create();
+    base.addPage([400, 400]);
+    const baseBytes = await base.save();
+
+    const out = await exportFlattenedPdf({
+      originalPdfBytes: baseBytes,
+      items: [],
+      signatures: [],
+      paraph: null
+    });
+
+    const loaded = await PDFDocument.load(out);
+    expect(loaded.getPageCount()).toBe(1);
+  });
+
   it("ignores stale form field names that do not exist in the document", async () => {
     // A document with no AcroForm at all — formValues must not crash the export.
     const base = await PDFDocument.create();

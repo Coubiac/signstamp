@@ -1,4 +1,4 @@
-export type Tool = "pan" | "text" | "date" | "check" | "ellipse" | "line" | "arrow" | "highlight" | "sign";
+export type Tool = "pan" | "text" | "date" | "check" | "ellipse" | "line" | "arrow" | "highlight" | "sign" | "paraph";
 
 export type PdfRect = { x: number; y: number; w: number; h: number };
 export type PdfPoint = { x: number; y: number };
@@ -85,3 +85,15 @@ export type HighlightItem = {
 };
 
 export type Item = TextItem | SignatureItem | CheckItem | EllipseItem | LineItem | ArrowItem | HighlightItem;
+
+/**
+ * A paraph is a single logical entity — an image projected onto every
+ * page of the PDF at the same coordinates. Unlike `Item`, it has no
+ * `page` field : the rect applies to every page, and editing it on any
+ * page updates the master.
+ */
+export type Paraph = {
+  /** Id of the `SignatureAsset` in the paraphs gallery. */
+  assetId: string;
+  rect: PdfRect;
+};

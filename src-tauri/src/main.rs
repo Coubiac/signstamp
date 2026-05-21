@@ -45,6 +45,14 @@ fn signatures_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("signatures.json"))
 }
 
+fn paraphs_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir introuvable: {e}"))?;
+    Ok(dir.join("paraphs.json"))
+}
+
 fn snippets_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -89,6 +97,30 @@ fn save_signatures(app: tauri::AppHandle, signatures: Vec<StoredSignature>) -> R
     }
 
     let bytes = serde_json::to_vec(&signatures).map_err(|e| format!("json invalide: {e}"))?;
+    std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn load_paraphs(app: tauri::AppHandle) -> Result<Vec<StoredSignature>, String> {
+    let path = paraphs_path(&app)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("lecture impossible: {e}"))?;
+    let paraphs = serde_json::from_slice(&bytes).map_err(|e| format!("json invalide: {e}"))?;
+    Ok(paraphs)
+}
+
+#[tauri::command]
+fn save_paraphs(app: tauri::AppHandle, paraphs: Vec<StoredSignature>) -> Result<(), String> {
+    let path = paraphs_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("creation dossier impossible: {e}"))?;
+    }
+
+    let bytes = serde_json::to_vec(&paraphs).map_err(|e| format!("json invalide: {e}"))?;
     std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
     Ok(())
 }
@@ -247,6 +279,8 @@ fn main() {
             save_pdf_to_downloads,
             load_signatures,
             save_signatures,
+            load_paraphs,
+            save_paraphs,
             load_snippets,
             save_snippets,
             save_pdf_to_path,
