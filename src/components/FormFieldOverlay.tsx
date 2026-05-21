@@ -65,12 +65,15 @@ export function FormFieldOverlay({ placement, viewport, values, onChange, onButt
         className={"form-field button" + (isReset ? " reset" : " inert")}
         style={baseStyle}
         disabled={!isReset}
-        title={isReset ? `Reset : ${label}` : `${label} (action not supported)`}
+        // No visible label : the PDF raster usually already paints the
+        // caption ("Click to reset form", "Effacer", ...) and stacking
+        // our metadata fieldName on top produces overlapping text.
+        // Keep the caption in title / aria-label for accessibility.
+        title={isReset ? `${label} (reset)` : `${label} (action not supported)`}
+        aria-label={label}
         onClick={() => { if (isReset) onButtonAction?.({ name, isReset }); }}
         onPointerDown={(e) => e.stopPropagation()}
-      >
-        {label}
-      </button>
+      />
     );
   }
 

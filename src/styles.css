@@ -605,26 +605,30 @@ canvas {
   padding: 0 2px;
 }
 
+/* Push buttons are layered on top of the PDF raster, which usually
+ * already paints the button caption ("Click to reset", "Effacer", ...).
+ * Stay transparent so we do not duplicate the caption ; surface
+ * interactivity through cursor + hover state only. */
 .form-field.button {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 0;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.form-field.button.inert {
-  /* Inert buttons are still rendered so the user sees there is a
-   * widget there ; the dimmed look + not-allowed cursor signals it
-   * cannot be triggered. */
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .form-field.button.reset:hover {
-  background: #fff7ed;
   border-color: rgba(234, 88, 12, 0.8);
+  background: rgba(255, 247, 237, 0.35);
+}
+
+.form-field.button.inert {
+  cursor: not-allowed;
+}
+
+.form-field.button.inert:hover {
+  /* Faint outline so the user sees the widget exists even though it
+   * cannot be triggered. */
+  border-color: rgba(127, 127, 127, 0.4);
 }
 
 .overlay-item.signature img {
