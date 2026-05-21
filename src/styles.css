@@ -570,12 +570,15 @@ canvas {
 }
 
 /* Native PDF form fields are positioned in PDF coordinates and rendered
- * over the rasterised page background. The dashed border helps them
- * stand out from regular page content without being too loud. */
+ * over the rasterised page background. The white fill masks any
+ * placeholder/label baked into the page's content stream (common in
+ * administrative forms where the field caption is painted in-page,
+ * not via the AcroForm appearance stream). */
 .form-field {
   position: absolute;
   border: 1px dashed rgba(106, 160, 255, 0.6);
-  background: rgba(255, 255, 255, 0.55);
+  background: #ffffff;
+  color: #1b2333;
   font-family: inherit;
   padding: 0 4px;
   box-sizing: border-box;
@@ -585,7 +588,6 @@ canvas {
 .form-field.text:focus {
   outline: 2px solid rgba(34, 197, 94, 0.6);
   outline-offset: 0;
-  background: rgba(255, 255, 255, 0.85);
 }
 
 .form-field.checkbox {
