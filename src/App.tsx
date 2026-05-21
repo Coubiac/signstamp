@@ -21,6 +21,8 @@ import { useSignatures } from "./hooks/useSignatures";
 import { useDragMachine } from "./hooks/useDragMachine";
 import { usePdfDocument } from "./hooks/usePdfDocument";
 import { useTextStyle } from "./hooks/useTextStyle";
+import { useFormFields } from "./hooks/useFormFields";
+import { FormFieldOverlay } from "./components/FormFieldOverlay";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -69,6 +71,8 @@ export default function App() {
     getCanvas: (pageNum) => canvasRefs.current.get(pageNum) ?? null
   });
 
+  const { fields: formFields, values: formValues, setValue: setFormValue } = useFormFields(pdfDoc);
+
   const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
   const [signatures, setSignatures] = useSignatures({
     onInitialLoad: (loaded) => setSelectedSignatureId(loaded[0]?.id ?? null)
@@ -112,6 +116,16 @@ export default function App() {
     }
     return map;
   }, [items]);
+
+  const formFieldsByPage = useMemo(() => {
+    const map = new Map<number, typeof formFields>();
+    for (const field of formFields) {
+      const list = map.get(field.page) ?? [];
+      list.push(field);
+      map.set(field.page, list);
+    }
+    return map;
+  }, [formFields]);
 
   const lang = detectLocale();
   const t = makeTranslator(lang);
@@ -723,7 +737,8 @@ export default function App() {
       out = await exportFlattenedPdf({
         originalPdfBytes: pdfBytes,
         items,
-        signatures
+        signatures,
+        formValues
       });
     } catch (err) {
       console.error("Export PDF (render) failed:", err);
@@ -1225,6 +1240,7 @@ export default function App() {
               {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => {
                 const viewport = pageViewports[pageNum - 1];
                 const itemsOnPage = itemsByPage.get(pageNum) ?? [];
+                const formFieldsOnPage = formFieldsByPage.get(pageNum) ?? [];
 
                 return (
                   <div className="page-stage" key={pageNum}>
@@ -1268,6 +1284,15 @@ export default function App() {
                       onPointerDown={(e) => startDraw(e, pageNum)}
                       aria-label="overlay"
                     >
+                      {viewport && formFieldsOnPage.map(field => (
+                        <FormFieldOverlay
+                          key={field.name}
+                          field={field}
+                          viewport={viewport}
+                          value={formValues[field.name]}
+                          onChange={(v) => setFormValue(field.name, v)}
+                        />
+                      ))}
                       {viewport && itemsOnPage.map(item => (
                         <ItemOverlay
                           key={item.id}

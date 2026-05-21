@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFCheckBox, PDFDocument, PDFTextField } from "pdf-lib";
 import { exportFlattenedPdf } from "./exportPdf";
 
 describe("exportFlattenedPdf", () => {
@@ -132,6 +132,55 @@ describe("exportFlattenedPdf", () => {
         }
       ],
       signatures: []
+    });
+
+    const loaded = await PDFDocument.load(out);
+    expect(loaded.getPageCount()).toBe(1);
+  });
+
+  it("writes back AcroForm field values when formValues is provided", async () => {
+    // Build a fresh document with a text field and a checkbox.
+    const base = await PDFDocument.create();
+    const page = base.addPage([400, 400]);
+    const form = base.getForm();
+    const name = form.createTextField("user.name");
+    name.setText("");
+    name.addToPage(page, { x: 50, y: 300, width: 200, height: 20 });
+    const agree = form.createCheckBox("user.agree");
+    agree.addToPage(page, { x: 50, y: 260, width: 14, height: 14 });
+    const baseBytes = await base.save();
+
+    const out = await exportFlattenedPdf({
+      originalPdfBytes: baseBytes,
+      items: [],
+      signatures: [],
+      formValues: {
+        "user.name": "Jane Doe",
+        "user.agree": true
+      }
+    });
+
+    const loaded = await PDFDocument.load(out);
+    const loadedForm = loaded.getForm();
+    const reloadedName = loadedForm.getField("user.name");
+    const reloadedAgree = loadedForm.getField("user.agree");
+    expect(reloadedName).toBeInstanceOf(PDFTextField);
+    expect((reloadedName as PDFTextField).getText()).toBe("Jane Doe");
+    expect(reloadedAgree).toBeInstanceOf(PDFCheckBox);
+    expect((reloadedAgree as PDFCheckBox).isChecked()).toBe(true);
+  });
+
+  it("ignores stale form field names that do not exist in the document", async () => {
+    // A document with no AcroForm at all — formValues must not crash the export.
+    const base = await PDFDocument.create();
+    base.addPage([400, 400]);
+    const baseBytes = await base.save();
+
+    const out = await exportFlattenedPdf({
+      originalPdfBytes: baseBytes,
+      items: [],
+      signatures: [],
+      formValues: { "ghost.field": "ignored" }
     });
 
     const loaded = await PDFDocument.load(out);

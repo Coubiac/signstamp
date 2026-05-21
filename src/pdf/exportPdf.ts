@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
+import { PDFDocument, PDFCheckBox, PDFTextField, StandardFonts, rgb, degrees } from "pdf-lib";
 import type { Item, SignatureAsset } from "../types";
 import { HIGHLIGHT_OPACITY } from "../constants";
 import { parseHexColor } from "../utils/color";
@@ -11,14 +11,55 @@ function hexToRgb(color: string) {
   return rgb(channels.r / 255, channels.g / 255, channels.b / 255);
 }
 
+/** Native AcroForm values keyed by field name. */
+export type FormValues = Record<string, string | boolean>;
+
 export async function exportFlattenedPdf(args: {
   originalPdfBytes: Uint8Array;
   items: Item[];
   signatures: SignatureAsset[];
+  /**
+   * Native form field values to write back into the document's
+   * AcroForm before the overlay items are stamped. Missing entries
+   * leave the underlying field untouched.
+   */
+  formValues?: FormValues;
 }): Promise<Uint8Array> {
-  const { originalPdfBytes, items, signatures } = args;
+  const { originalPdfBytes, items, signatures, formValues } = args;
 
   const pdfDoc = await PDFDocument.load(originalPdfBytes);
+
+  // Write native form-field values first so the existing AcroForm
+  // visuals are in sync before we draw our overlay items on top.
+  // Skip when the caller has no values to write — pdf-lib's getForm()
+  // would otherwise materialize an empty AcroForm dictionary on PDFs
+  // that never had one.
+  if (formValues && Object.keys(formValues).length > 0) {
+    try {
+      const form = pdfDoc.getForm();
+      for (const [name, value] of Object.entries(formValues)) {
+        // getField throws if the field does not exist ; we swallow
+        // because the caller's value map may include stale entries
+        // from a previously loaded PDF.
+        let field;
+        try {
+          field = form.getField(name);
+        } catch {
+          continue;
+        }
+        if (field instanceof PDFTextField && typeof value === "string") {
+          field.setText(value);
+        } else if (field instanceof PDFCheckBox && typeof value === "boolean") {
+          if (value) field.check();
+          else field.uncheck();
+        }
+      }
+    } catch (err) {
+      // A document without an AcroForm dictionary raises here ; that
+      // is the no-op case, not a failure to report.
+      console.warn("Form export skipped:", err);
+    }
+  }
   const fontCache = new Map<string, Promise<any>>();
 
   function getFont(family: "sans" | "serif" | "mono", bold: boolean) {
