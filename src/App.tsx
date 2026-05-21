@@ -17,6 +17,8 @@ import {
   ZOOM
 } from "./constants";
 import { parseHexColor, toCssRgba } from "./utils/color";
+import { bytesToDataUrl, fileToBytes, getImageNaturalSize } from "./utils/file";
+import { uid } from "./utils/uid";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -52,35 +54,6 @@ import type { PageViewport } from "pdfjs-dist/types/src/display/display_utils";
 
 GlobalWorkerOptions.workerSrc = workerSrc;
 
-function uid() {
-  return (globalThis.crypto?.randomUUID?.() ?? String(Date.now() + Math.random())).replace(/[^a-z0-9-]/gi, "");
-}
-
-async function fileToBytes(file: File): Promise<Uint8Array> {
-  const buf = await file.arrayBuffer();
-  return new Uint8Array(buf);
-}
-
-async function bytesToDataUrl(bytes: Uint8Array, mime: string): Promise<string> {
-  const safeBytes = new Uint8Array(bytes);
-  const blob = new Blob([safeBytes], { type: mime });
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function getImageNaturalSize(dataUrl: string): Promise<{ w: number; h: number }> {
-  return await new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-    img.onerror = (e) => reject(e);
-    img.src = dataUrl;
-  });
-}
-
 type DragMode =
   | { kind: "none" }
   | { kind: "move"; id: string; page: number; startX: number; startY: number; startRect: { x: number; y: number; w: number; h: number }; startLine?: { start: PdfPoint; end: PdfPoint } }
@@ -106,7 +79,7 @@ export default function App() {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
-  const [scale, setScale] = useState(ZOOM.default);
+  const [scale, setScale] = useState<number>(ZOOM.default);
   const [pageViewports, setPageViewports] = useState<PageViewport[]>([]);
   const [fileName, setFileName] = useState<string>("document.pdf");
 
