@@ -19,6 +19,7 @@ import { ItemOverlay } from "./components/items/ItemOverlay";
 import { useSnippets } from "./hooks/useSnippets";
 import { useSignatures } from "./hooks/useSignatures";
 import { useDragMachine } from "./hooks/useDragMachine";
+import { usePdfDocument } from "./hooks/usePdfDocument";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -47,12 +48,6 @@ import {
   TextT
 } from "@phosphor-icons/react";
 
-import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
-import workerSrc from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
-import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
-import type { PageViewport } from "pdfjs-dist/types/src/display/display_utils";
-
-GlobalWorkerOptions.workerSrc = workerSrc;
 
 export default function App() {
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
@@ -62,11 +57,16 @@ export default function App() {
   const [tool, setTool] = useState<Tool>("pan");
 
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
-  const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
-  const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState<number>(ZOOM.default);
-  const [pageViewports, setPageViewports] = useState<PageViewport[]>([]);
   const [fileName, setFileName] = useState<string>("document.pdf");
+
+  const canvasRefs = useRef(new Map<number, HTMLCanvasElement>());
+
+  const { pdfDoc, numPages, pageViewports } = usePdfDocument({
+    bytes: pdfBytes,
+    scale,
+    getCanvas: (pageNum) => canvasRefs.current.get(pageNum) ?? null
+  });
 
   const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
   const [signatures, setSignatures] = useSignatures({
@@ -112,7 +112,6 @@ export default function App() {
     return map;
   }, [items]);
 
-  const canvasRefs = useRef(new Map<number, HTMLCanvasElement>());
   const lang = detectLocale();
   const t = makeTranslator(lang);
   const pagesLabel = (count: number) => `${count} ${count === 1 ? t("pages_singular") : t("pages_plural")}`;
@@ -334,73 +333,12 @@ export default function App() {
     resetDrag();
   }
 
-  useEffect(() => {
-    const doc = pdfDoc;
-    if (!doc) return;
-    let cancelled = false;
-    let activeRenderTask: { cancel: () => void } | null = null;
-
-    async function renderAllPages() {
-      const viewports: PageViewport[] = [];
-
-      for (let i = 1; i <= doc!.numPages; i += 1) {
-        if (cancelled) return;
-
-        const p = await doc!.getPage(i);
-        if (cancelled) return;
-
-        const vp = p.getViewport({ scale });
-        viewports[i - 1] = vp;
-
-        const canvas = canvasRefs.current.get(i);
-        if (!canvas) continue;
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) continue;
-
-        canvas.width = Math.floor(vp.width);
-        canvas.height = Math.floor(vp.height);
-        canvas.style.width = `${Math.floor(vp.width)}px`;
-        canvas.style.height = `${Math.floor(vp.height)}px`;
-
-        const renderTask = p.render({ canvasContext: ctx, viewport: vp });
-        activeRenderTask = renderTask;
-        try {
-          await renderTask.promise;
-        } catch (err: any) {
-          // pdf.js throws RenderingCancelledException quand on appelle .cancel()
-          if (err?.name === "RenderingCancelledException") return;
-          throw err;
-        } finally {
-          if (activeRenderTask === renderTask) activeRenderTask = null;
-        }
-      }
-
-      if (!cancelled) {
-        setPageViewports(viewports);
-      }
-    }
-
-    void renderAllPages();
-
-    return () => {
-      cancelled = true;
-      activeRenderTask?.cancel();
-    };
-  }, [pdfDoc, scale]);
-
-
-  async function openPdfBytes(bytes: Uint8Array, name: string) {
-    // pdf.js peut transférer le buffer vers le worker et le "neuter"
-    // on garde donc une copie pour l'export
+  function openPdfBytes(bytes: Uint8Array, name: string) {
+    // pdf.js can transfer the buffer to its worker thread and "neuter"
+    // the source view ; keep a defensive copy for the export pipeline.
     setPdfBytes(bytes.slice(0));
     setFileName(name || "document.pdf");
-
-    const loadingTask = getDocument({ data: bytes });
-    const doc = await loadingTask.promise;
-    setPdfDoc(doc);
-    setNumPages(doc.numPages);
-    setItems([]); // reset pour MVP
+    setItems([]);
     setHistory([]);
     setEditingId(null);
     setEditingValue("");
@@ -410,7 +348,7 @@ export default function App() {
 
   async function openPdf(file: File) {
     const bytes = await fileToBytes(file);
-    await openPdfBytes(bytes, file.name || "document.pdf");
+    openPdfBytes(bytes, file.name || "document.pdf");
   }
 
   type LoadedPdfPayload = { bytes: number[]; name: string };
@@ -418,7 +356,7 @@ export default function App() {
   async function openPdfFromPath(path: string) {
     const payload = await invoke<LoadedPdfPayload>("load_pdf_from_path", { path });
     const bytes = new Uint8Array(payload.bytes);
-    await openPdfBytes(bytes, payload.name);
+    openPdfBytes(bytes, payload.name);
   }
 
   function openPdfPathOnce(path: string) {
