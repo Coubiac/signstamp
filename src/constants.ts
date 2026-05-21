@@ -50,3 +50,12 @@ export const PATH_REOPEN_DEBOUNCE_MS = 5000;
 // Safety margin before revoking a generated PDF object URL after
 // the user-triggered download has had time to start.
 export const OBJECT_URL_REVOKE_MS = 10_000;
+
+// CSS font stacks for the three logical families exposed in the UI.
+// Kept here so the DOM overlay and any future style consumer share
+// the exact same fallback chain.
+export const FONT_STACK = {
+  sans: '"Space Grotesk", "Fira Sans", "Segoe UI", sans-serif',
+  serif: '"Merriweather", Georgia, serif',
+  mono: '"Fira Code", Consolas, monospace'
+} as const satisfies Record<"sans" | "serif" | "mono", string>;

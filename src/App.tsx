@@ -2,12 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Item, SignatureAsset, Tool, TextItem, PdfPoint, PdfRect } from "./types";
 import { exportFlattenedPdf } from "./pdf/exportPdf";
-import { pdfRectToCss, pxDeltaToPdfDelta, pxSizeToPdfSize } from "./pdf/coords";
+import { pxDeltaToPdfDelta, pxSizeToPdfSize } from "./pdf/coords";
 import {
   CHECK_DEFAULTS,
   DATE_DEFAULTS,
-  HANDLE_HALF_PX,
-  HIGHLIGHT_OPACITY,
   HISTORY_LIMIT,
   MIN_RESIZE_PDF,
   OBJECT_URL_REVOKE_MS,
@@ -16,9 +14,9 @@ import {
   TEXT_DEFAULTS,
   ZOOM
 } from "./constants";
-import { parseHexColor, toCssRgba } from "./utils/color";
 import { bytesToDataUrl, fileToBytes, getImageNaturalSize } from "./utils/file";
 import { uid } from "./utils/uid";
+import { ItemOverlay } from "./components/items/ItemOverlay";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -1106,13 +1104,6 @@ export default function App() {
     };
   }
 
-  // Fallback channels for malformed colors on the highlight overlay :
-  // 253/224/71 is the parsed form of `highlightDefault` (#fde047).
-  const HIGHLIGHT_FALLBACK_CHANNELS = { r: 253, g: 224, b: 71 } as const;
-
-  function highlightFill(color: string, alpha: number): string {
-    return toCssRgba(parseHexColor(color) ?? HIGHLIGHT_FALLBACK_CHANNELS, alpha);
-  }
 
   function updateSelectedText(partial: Partial<TextItem>) {
     if (!selectedId || selectedItem?.type !== "text") return;
@@ -1605,231 +1596,26 @@ export default function App() {
                       onPointerDown={(e) => startDraw(e, pageNum)}
                       aria-label="overlay"
                     >
-                      {viewport && itemsOnPage.map(item => {
-                        const css = pdfRectToCss(item.rect, viewport);
-                        const isSelected = item.id === selectedId;
-
-                    if (item.type === "signature") {
-                      const sig = signatures.find(s => s.id === item.signatureId);
-                          return (
-                            <div
-                              key={item.id}
-                              className={"overlay-item signature" + (isSelected ? " selected" : "")}
-                              style={{ left: css.left, top: css.top, width: css.width, height: css.height }}
-                              onPointerDown={(e) => startMove(item.id, e)}
-                            >
-                              {sig ? <img src={sig.dataUrl} alt="signature" draggable={false} /> : <div className="missing">?</div>}
-                              <div className="handle" onPointerDown={(e) => startResize(item.id, e)} />
-                            </div>
-                          );
-                        }
-
-                    if (item.type === "check") {
-                      return (
-                        <div
+                      {viewport && itemsOnPage.map(item => (
+                        <ItemOverlay
                           key={item.id}
-                          className={"overlay-item check" + (isSelected ? " selected" : "")}
-                          style={{ left: css.left, top: css.top, width: css.width, height: css.height }}
-                          onPointerDown={(e) => startMove(item.id, e)}
-                        >
-                          <span style={{ fontSize: item.fontSize, color: item.color }}>{item.value}</span>
-                          <div className="handle" onPointerDown={(e) => startResize(item.id, e)} />
-                        </div>
-                      );
-                    }
-
-                    if (item.type === "ellipse") {
-                      const strokePx = Math.max(1, item.strokeWidth * viewport.scale);
-                      return (
-                        <div
-                          key={item.id}
-                          className={"overlay-item ellipse" + (isSelected ? " selected" : "")}
-                          style={{
-                            left: css.left,
-                            top: css.top,
-                            width: css.width,
-                            height: css.height,
-                            borderColor: item.color,
-                            borderWidth: strokePx
+                          item={item}
+                          viewport={viewport}
+                          isSelected={item.id === selectedId}
+                          signatures={signatures}
+                          textEditing={{
+                            isActive: editingId === item.id,
+                            value: editingValue,
+                            placeholder: t("text_placeholder"),
+                            title: t("edit_title"),
+                            onStart: () => startEditingText(item.id),
+                            onChange: setEditingValue,
+                            onCommit: commitEditing
                           }}
-                          onPointerDown={(e) => startMove(item.id, e)}
-                        >
-                          <div className="handle" onPointerDown={(e) => startResize(item.id, e)} />
-                        </div>
-                      );
-                    }
-
-                    if (item.type === "line") {
-                      const start = viewport.convertToViewportPoint(item.start.x, item.start.y);
-                      const end = viewport.convertToViewportPoint(item.end.x, item.end.y);
-                      const left = Math.min(start[0], end[0]);
-                      const top = Math.min(start[1], end[1]);
-                      const width = Math.max(1, Math.abs(end[0] - start[0]));
-                      const height = Math.max(1, Math.abs(end[1] - start[1]));
-                      const x1 = start[0] - left;
-                      const y1 = start[1] - top;
-                      const x2 = end[0] - left;
-                      const y2 = end[1] - top;
-                      const strokePx = Math.max(1, item.strokeWidth * viewport.scale);
-                      return (
-                        <div
-                          key={item.id}
-                          className={"overlay-item line" + (isSelected ? " selected" : "")}
-                          style={{ left, top, width, height }}
-                          onPointerDown={(e) => startMove(item.id, e)}
-                        >
-                          <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-                            <line
-                              x1={x1}
-                              y1={y1}
-                              x2={x2}
-                              y2={y2}
-                              stroke={item.color}
-                              strokeWidth={strokePx}
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                          <div
-                            className="handle"
-                            style={{ left: x2 - HANDLE_HALF_PX, top: y2 - HANDLE_HALF_PX, right: "auto", bottom: "auto" }}
-                            onPointerDown={(e) => startResize(item.id, e)}
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (item.type === "arrow") {
-                      const start = viewport.convertToViewportPoint(item.start.x, item.start.y);
-                      const end = viewport.convertToViewportPoint(item.end.x, item.end.y);
-                      const left = Math.min(start[0], end[0]);
-                      const top = Math.min(start[1], end[1]);
-                      const width = Math.max(1, Math.abs(end[0] - start[0]));
-                      const height = Math.max(1, Math.abs(end[1] - start[1]));
-                      const x1 = start[0] - left;
-                      const y1 = start[1] - top;
-                      const x2 = end[0] - left;
-                      const y2 = end[1] - top;
-                      const angle = Math.atan2(y2 - y1, x2 - x1);
-                      const strokePx = Math.max(1, item.strokeWidth * viewport.scale);
-                      const headLength = Math.max(8, strokePx * 4);
-                      const headWidth = headLength * 0.7;
-                      const hx = Math.cos(angle) * headLength;
-                      const hy = Math.sin(angle) * headLength;
-                      const px = -Math.sin(angle) * headWidth * 0.5;
-                      const py = Math.cos(angle) * headWidth * 0.5;
-                      const tipX = x2;
-                      const tipY = y2;
-                      const baseX = x2 - hx;
-                      const baseY = y2 - hy;
-                      const leftX = baseX + px;
-                      const leftY = baseY + py;
-                      const rightX = baseX - px;
-                      const rightY = baseY - py;
-                      return (
-                        <div
-                          key={item.id}
-                          className={"overlay-item arrow" + (isSelected ? " selected" : "")}
-                          style={{ left, top, width, height }}
-                          onPointerDown={(e) => startMove(item.id, e)}
-                        >
-                          <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-                            <line
-                              x1={x1}
-                              y1={y1}
-                              x2={baseX}
-                              y2={baseY}
-                              stroke={item.color}
-                              strokeWidth={strokePx}
-                              strokeLinecap="round"
-                            />
-                            <polygon
-                              points={`${tipX},${tipY} ${leftX},${leftY} ${rightX},${rightY}`}
-                              fill={item.color}
-                            />
-                          </svg>
-                          <div
-                            className="handle"
-                            style={{ left: tipX - HANDLE_HALF_PX, top: tipY - HANDLE_HALF_PX, right: "auto", bottom: "auto" }}
-                            onPointerDown={(e) => startResize(item.id, e)}
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (item.type === "highlight") {
-                      const fill = highlightFill(item.color ?? highlightDefault, HIGHLIGHT_OPACITY);
-                      return (
-                        <div
-                          key={item.id}
-                          className={"overlay-item highlight" + (isSelected ? " selected" : "")}
-                          style={{ left: css.left, top: css.top, width: css.width, height: css.height, background: fill }}
-                          onPointerDown={(e) => startMove(item.id, e)}
-                        >
-                          <div className="handle" onPointerDown={(e) => startResize(item.id, e)} />
-                        </div>
-                      );
-                    }
-
-                    // text
-                    const fontFamily = item.fontFamily ?? "sans";
-                    const isBold = Boolean(item.bold);
-                    const isUnderline = Boolean(item.underline);
-                    const isStrike = Boolean(item.strike);
-                    return (
-                      <div
-                        key={item.id}
-                        className={"overlay-item text" + (isSelected ? " selected" : "")}
-                        style={{ left: css.left, top: css.top, width: css.width, height: css.height }}
-                        onPointerDown={(e) => {
-                          if (editingId !== item.id) startMove(item.id, e);
-                        }}
-                        onDoubleClick={() => startEditingText(item.id)}
-                        title={t("edit_title")}
-                      >
-                        {editingId === item.id ? (
-                          <input
-                            className="text-editor"
-                            style={{
-                              fontSize: item.fontSize,
-                              color: item.color,
-                              fontFamily: fontFamily === "serif" ? "\"Merriweather\", Georgia, serif" : fontFamily === "mono" ? "\"Fira Code\", Consolas, monospace" : "\"Space Grotesk\", \"Fira Sans\", \"Segoe UI\", sans-serif",
-                              fontWeight: isBold ? 700 : 400,
-                              textDecoration: [isUnderline ? "underline" : "", isStrike ? "line-through" : ""].filter(Boolean).join(" ")
-                            }}
-                            value={editingValue}
-                            placeholder={t("text_placeholder")}
-                            onChange={(e) => setEditingValue(e.target.value)}
-                            onBlur={() => commitEditing(true)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                commitEditing(true);
-                              }
-                              if (e.key === "Escape") {
-                                e.preventDefault();
-                                commitEditing(false);
-                              }
-                            }}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            autoFocus
-                          />
-                        ) : (
-                          <span
-                            style={{
-                              fontSize: item.fontSize,
-                              color: item.value ? item.color : "var(--muted)",
-                              fontFamily: fontFamily === "serif" ? "\"Merriweather\", Georgia, serif" : fontFamily === "mono" ? "\"Fira Code\", Consolas, monospace" : "\"Space Grotesk\", \"Fira Sans\", \"Segoe UI\", sans-serif",
-                              fontWeight: isBold ? 700 : 400,
-                              textDecoration: [isUnderline ? "underline" : "", isStrike ? "line-through" : ""].filter(Boolean).join(" ")
-                            }}
-                          >
-                            {item.value || t("text_placeholder")}
-                          </span>
-                        )}
-                        <div className="handle" onPointerDown={(e) => startResize(item.id, e)} />
-                      </div>
-                    );
-                      })}
+                          onStartMove={(e) => startMove(item.id, e)}
+                          onStartResize={(e) => startResize(item.id, e)}
+                        />
+                      ))}
                     </div>
                   </div>
                 );
