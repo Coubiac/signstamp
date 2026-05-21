@@ -694,6 +694,7 @@ export default function App() {
         signatureId: selectedSignatureId
       });
       setSelectedId(id);
+      setTool("pan");
       return;
     }
   }
