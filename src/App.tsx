@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import type { Item, SignatureAsset, Tool, TextItem, PdfPoint, PdfRect } from "./types";
+import type { Item, SignatureAsset, Tool, TextItem } from "./types";
 import { exportFlattenedPdf } from "./pdf/exportPdf";
-import { pxDeltaToPdfDelta, pxSizeToPdfSize } from "./pdf/coords";
+import { pxSizeToPdfSize } from "./pdf/coords";
 import {
   CHECK_DEFAULTS,
   DATE_DEFAULTS,
   HISTORY_LIMIT,
-  MIN_RESIZE_PDF,
   OBJECT_URL_REVOKE_MS,
   PATH_REOPEN_DEBOUNCE_MS,
   SIGNATURE_DEFAULTS,
@@ -19,6 +18,7 @@ import { uid } from "./utils/uid";
 import { ItemOverlay } from "./components/items/ItemOverlay";
 import { useSnippets } from "./hooks/useSnippets";
 import { useSignatures } from "./hooks/useSignatures";
+import { useDragMachine } from "./hooks/useDragMachine";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -54,12 +54,6 @@ import type { PageViewport } from "pdfjs-dist/types/src/display/display_utils";
 
 GlobalWorkerOptions.workerSrc = workerSrc;
 
-type DragMode =
-  | { kind: "none" }
-  | { kind: "move"; id: string; page: number; startX: number; startY: number; startRect: { x: number; y: number; w: number; h: number }; startLine?: { start: PdfPoint; end: PdfPoint } }
-  | { kind: "resize"; id: string; page: number; startX: number; startY: number; startRect: { x: number; y: number; w: number; h: number }; startLine?: { start: PdfPoint; end: PdfPoint } }
-  | { kind: "draw"; id: string; page: number; startX: number; startY: number; startPdf: { x: number; y: number }; overlayRect: DOMRect };
-
 export default function App() {
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const sigInputRef = useRef<HTMLInputElement | null>(null);
@@ -81,7 +75,6 @@ export default function App() {
 
   const [items, setItems] = useState<Item[]>([]);
   const [history, setHistory] = useState<Item[][]>([]);
-  const [drag, setDrag] = useState<DragMode>({ kind: "none" });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -275,12 +268,28 @@ export default function App() {
     updateItems(prev => prev.concat([item]), { record });
   }
 
+  const {
+    drag,
+    startMove,
+    startResize,
+    beginDraw,
+    onPointerMove: handleDragPointerMove,
+    onPointerUp: handleDragPointerUp,
+    reset: resetDrag
+  } = useDragMachine({
+    items,
+    pageViewports,
+    pushHistory: () => pushHistory(items),
+    updateItemsNoRecord: (updater) => updateItems(updater, { record: false }),
+    setSelectedId
+  });
+
   function undoLast() {
     setHistory(prev => {
       if (prev.length === 0) return prev;
       const last = prev[prev.length - 1];
       setItems(last);
-      setDrag({ kind: "none" });
+      resetDrag();
       setEditingId(null);
       setEditingValue("");
       setSelectedId(null);
@@ -322,7 +331,7 @@ export default function App() {
       setEditingValue("");
     }
     setSelectedId(null);
-    setDrag({ kind: "none" });
+    resetDrag();
   }
 
   useEffect(() => {
@@ -396,7 +405,7 @@ export default function App() {
     setEditingId(null);
     setEditingValue("");
     setSelectedId(null);
-    setDrag({ kind: "none" });
+    resetDrag();
   }
 
   async function openPdf(file: File) {
@@ -565,53 +574,6 @@ export default function App() {
     }
   }
 
-  function startMove(id: string, e: ReactPointerEvent) {
-    e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-
-    const item = items.find(i => i.id === id);
-    if (!item) return;
-    if (!pageViewports[item.page - 1]) return;
-
-    setSelectedId(id);
-    pushHistory(items);
-    setDrag({
-      kind: "move",
-      id,
-      page: item.page,
-      startX: e.clientX,
-      startY: e.clientY,
-      startRect: { ...item.rect },
-      startLine: item.type === "line" || item.type === "arrow"
-        ? { start: { ...item.start }, end: { ...item.end } }
-        : undefined
-    });
-  }
-
-  function startResize(id: string, e: ReactPointerEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-
-    const item = items.find(i => i.id === id);
-    if (!item) return;
-    if (!pageViewports[item.page - 1]) return;
-
-    setSelectedId(id);
-    pushHistory(items);
-    setDrag({
-      kind: "resize",
-      id,
-      page: item.page,
-      startX: e.clientX,
-      startY: e.clientY,
-      startRect: { ...item.rect },
-      startLine: item.type === "line" || item.type === "arrow"
-        ? { start: { ...item.start }, end: { ...item.end } }
-        : undefined
-    });
-  }
-
   function startDraw(e: ReactPointerEvent, pageNum: number) {
     if (!(tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "highlight")) return;
     const viewport = pageViewports[pageNum - 1];
@@ -626,61 +588,21 @@ export default function App() {
     const yPx = e.clientY - rect.top;
     const [xPdf, yPdf] = viewport.convertToPdfPoint(xPx, yPx);
     const id = uid();
-
     const baseRect = { x: xPdf, y: yPdf, w: 1, h: 1 };
 
     if (tool === "ellipse") {
-      appendItem({
-        id,
-        type: "ellipse",
-        page: pageNum,
-        rect: baseRect,
-        color: inkColor,
-        strokeWidth: drawStrokeWidth
-      });
-    }
-
-    if (tool === "line") {
+      appendItem({ id, type: "ellipse", page: pageNum, rect: baseRect, color: inkColor, strokeWidth: drawStrokeWidth });
+    } else if (tool === "line") {
       const start = { x: xPdf, y: yPdf };
-      appendItem({
-        id,
-        type: "line",
-        page: pageNum,
-        rect: baseRect,
-        start,
-        end: start,
-        color: inkColor,
-        strokeWidth: drawStrokeWidth
-      });
-    }
-
-    if (tool === "arrow") {
+      appendItem({ id, type: "line", page: pageNum, rect: baseRect, start, end: start, color: inkColor, strokeWidth: drawStrokeWidth });
+    } else if (tool === "arrow") {
       const start = { x: xPdf, y: yPdf };
-      appendItem({
-        id,
-        type: "arrow",
-        page: pageNum,
-        rect: baseRect,
-        start,
-        end: start,
-        color: inkColor,
-        strokeWidth: drawStrokeWidth
-      });
+      appendItem({ id, type: "arrow", page: pageNum, rect: baseRect, start, end: start, color: inkColor, strokeWidth: drawStrokeWidth });
+    } else if (tool === "highlight") {
+      appendItem({ id, type: "highlight", page: pageNum, rect: baseRect, color: highlightDefault });
     }
 
-    if (tool === "highlight") {
-      appendItem({
-        id,
-        type: "highlight",
-        page: pageNum,
-        rect: baseRect,
-        color: highlightDefault
-      });
-    }
-
-    setSelectedId(id);
-    setDrag({
-      kind: "draw",
+    beginDraw({
       id,
       page: pageNum,
       startX: e.clientX,
@@ -696,68 +618,7 @@ export default function App() {
       snippetDrag.current.lastY = e.clientY;
       return;
     }
-    if (drag.kind === "none") return;
-
-    const viewport = pageViewports[drag.page - 1];
-    if (!viewport) return;
-
-    updateItems(prev => prev.map(it => {
-      if (it.id !== drag.id) return it;
-
-      if (drag.kind === "move") {
-        const dxPx = e.clientX - drag.startX;
-        const dyPx = e.clientY - drag.startY;
-        const { dxPdf, dyPdf } = pxDeltaToPdfDelta(dxPx, dyPx, viewport);
-        if (it.type === "line" || it.type === "arrow") {
-          const base = drag.startLine ?? { start: it.start, end: it.end };
-          const start = { x: base.start.x + dxPdf, y: base.start.y + dyPdf };
-          const end = { x: base.end.x + dxPdf, y: base.end.y + dyPdf };
-          return { ...it, start, end, rect: rectFromPoints(start, end) };
-        }
-        return { ...it, rect: { ...it.rect, x: drag.startRect.x + dxPdf, y: drag.startRect.y + dyPdf } };
-      }
-
-      if (drag.kind === "resize") {
-        const dxPx = e.clientX - drag.startX;
-        const dyPx = e.clientY - drag.startY;
-        const { dxPdf, dyPdf } = pxDeltaToPdfDelta(dxPx, dyPx, viewport);
-        if ((it.type === "line" || it.type === "arrow") && drag.startLine) {
-          const start = drag.startLine.start;
-          const end = {
-            x: drag.startLine.end.x + dxPdf,
-            y: drag.startLine.end.y + dyPdf
-          };
-          return { ...it, start, end, rect: rectFromPoints(start, end) };
-        }
-        // resize depuis coin bas-droite : on garde le bord haut (y + h) fixe
-        // et on laisse le bord bas (rect.y) suivre la souris en PDF.
-        const newW = Math.max(MIN_RESIZE_PDF.width, drag.startRect.w + dxPdf);
-        const newH = Math.max(MIN_RESIZE_PDF.height, drag.startRect.h - dyPdf); // dyPdf inversé vs écran
-        const topY = drag.startRect.y + drag.startRect.h;
-        const newY = topY - newH;
-        return { ...it, rect: { ...it.rect, y: newY, w: newW, h: newH } };
-      }
-
-      if (drag.kind === "draw") {
-        const xPx = e.clientX - drag.overlayRect.left;
-        const yPx = e.clientY - drag.overlayRect.top;
-        const [xPdf, yPdf] = viewport.convertToPdfPoint(xPx, yPx);
-        if (it.type === "line" || it.type === "arrow") {
-          const start = { x: drag.startPdf.x, y: drag.startPdf.y };
-          const end = { x: xPdf, y: yPdf };
-          return { ...it, start, end, rect: rectFromPoints(start, end) };
-        }
-
-        const x = Math.min(drag.startPdf.x, xPdf);
-        const y = Math.min(drag.startPdf.y, yPdf);
-        const w = Math.max(1, Math.abs(xPdf - drag.startPdf.x));
-        const h = Math.max(1, Math.abs(yPdf - drag.startPdf.y));
-
-        return { ...it, rect: { ...it.rect, x, y, w, h } };
-      }
-
-      return it;
-    }), { record: false });
+    handleDragPointerMove(e);
   }
 
   function onPointerUp() {
@@ -765,7 +626,7 @@ export default function App() {
       finishSnippetDrag();
       return;
     }
-    if (drag.kind !== "none") setDrag({ kind: "none" });
+    handleDragPointerUp();
   }
 
   async function importSignature(file: File) {
@@ -976,15 +837,6 @@ export default function App() {
 
   function removeSnippet(value: string) {
     setSnippets(prev => prev.filter(entry => entry !== value));
-  }
-
-  function rectFromPoints(start: PdfPoint, end: PdfPoint): PdfRect {
-    return {
-      x: Math.min(start.x, end.x),
-      y: Math.min(start.y, end.y),
-      w: Math.max(1, Math.abs(end.x - start.x)),
-      h: Math.max(1, Math.abs(end.y - start.y))
-    };
   }
 
 
