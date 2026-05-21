@@ -590,10 +590,19 @@ canvas {
   outline-offset: 0;
 }
 
-.form-field.checkbox {
-  /* Center the native checkbox glyph inside the field rect. */
+.form-field.checkbox,
+.form-field.radio {
+  /* Native control glyphs are smaller than the field rect ; the
+   * browser centers them automatically. Pointer cursor signals the
+   * input is clickable through the dashed overlay border. */
   cursor: pointer;
   padding: 0;
+}
+
+.form-field.choice {
+  /* Dropdowns need padding-right to leave room for the disclosure
+   * arrow the browser draws inside the control. */
+  padding: 0 2px;
 }
 
 .overlay-item.signature img {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDFCheckBox, PDFDocument, PDFTextField } from "pdf-lib";
+import { PDFCheckBox, PDFDocument, PDFDropdown, PDFOptionList, PDFRadioGroup, PDFTextField } from "pdf-lib";
 import { exportFlattenedPdf } from "./exportPdf";
 
 describe("exportFlattenedPdf", () => {
@@ -168,6 +168,88 @@ describe("exportFlattenedPdf", () => {
     expect((reloadedName as PDFTextField).getText()).toBe("Jane Doe");
     expect(reloadedAgree).toBeInstanceOf(PDFCheckBox);
     expect((reloadedAgree as PDFCheckBox).isChecked()).toBe(true);
+  });
+
+  it("selects a radio group's option and clears it when value is null", async () => {
+    const base = await PDFDocument.create();
+    const page = base.addPage([400, 400]);
+    const form = base.getForm();
+    const group = form.createRadioGroup("color");
+    group.addOptionToPage("red", page, { x: 20, y: 300, width: 14, height: 14 });
+    group.addOptionToPage("green", page, { x: 50, y: 300, width: 14, height: 14 });
+    group.addOptionToPage("blue", page, { x: 80, y: 300, width: 14, height: 14 });
+    const baseBytes = await base.save();
+
+    // First export : select "green".
+    const selected = await exportFlattenedPdf({
+      originalPdfBytes: baseBytes,
+      items: [],
+      signatures: [],
+      formValues: { color: "green" }
+    });
+    const loaded = await PDFDocument.load(selected);
+    const reloadedGroup = loaded.getForm().getField("color");
+    expect(reloadedGroup).toBeInstanceOf(PDFRadioGroup);
+    expect((reloadedGroup as PDFRadioGroup).getSelected()).toBe("green");
+
+    // Second export from the freshly-selected doc : null clears it.
+    const cleared = await exportFlattenedPdf({
+      originalPdfBytes: selected,
+      items: [],
+      signatures: [],
+      formValues: { color: null }
+    });
+    const reloadedCleared = await PDFDocument.load(cleared);
+    const clearedGroup = reloadedCleared.getForm().getField("color") as PDFRadioGroup;
+    expect(clearedGroup.getSelected()).toBeUndefined();
+  });
+
+  it("writes the selected option for a dropdown and a list box", async () => {
+    const base = await PDFDocument.create();
+    const page = base.addPage([400, 400]);
+    const form = base.getForm();
+
+    const country = form.createDropdown("country");
+    country.setOptions(["France", "Germany", "Spain"]);
+    country.addToPage(page, { x: 20, y: 300, width: 120, height: 20 });
+
+    const lang = form.createOptionList("lang");
+    lang.setOptions(["en", "fr", "de"]);
+    lang.addToPage(page, { x: 20, y: 250, width: 120, height: 60 });
+    const baseBytes = await base.save();
+
+    const out = await exportFlattenedPdf({
+      originalPdfBytes: baseBytes,
+      items: [],
+      signatures: [],
+      formValues: { country: "Germany", lang: "fr" }
+    });
+    const loaded = await PDFDocument.load(out);
+    const reloadedCountry = loaded.getForm().getField("country");
+    const reloadedLang = loaded.getForm().getField("lang");
+    expect(reloadedCountry).toBeInstanceOf(PDFDropdown);
+    expect(reloadedLang).toBeInstanceOf(PDFOptionList);
+    expect((reloadedCountry as PDFDropdown).getSelected()).toEqual(["Germany"]);
+    expect((reloadedLang as PDFOptionList).getSelected()).toEqual(["fr"]);
+  });
+
+  it("silently ignores unknown radio / choice options", async () => {
+    const base = await PDFDocument.create();
+    const page = base.addPage([400, 400]);
+    const form = base.getForm();
+    const group = form.createRadioGroup("color");
+    group.addOptionToPage("red", page, { x: 0, y: 0, width: 10, height: 10 });
+    const baseBytes = await base.save();
+
+    // Should not throw despite "purple" not existing.
+    const out = await exportFlattenedPdf({
+      originalPdfBytes: baseBytes,
+      items: [],
+      signatures: [],
+      formValues: { color: "purple" }
+    });
+    const loaded = await PDFDocument.load(out);
+    expect(loaded.getPageCount()).toBe(1);
   });
 
   it("ignores stale form field names that do not exist in the document", async () => {

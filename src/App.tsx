@@ -71,7 +71,7 @@ export default function App() {
     getCanvas: (pageNum) => canvasRefs.current.get(pageNum) ?? null
   });
 
-  const { fields: formFields, values: formValues, setValue: setFormValue } = useFormFields(pdfDoc);
+  const { placements: formPlacements, values: formValues, setValue: setFormValue } = useFormFields(pdfDoc);
 
   const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
   const [signatures, setSignatures] = useSignatures({
@@ -117,15 +117,15 @@ export default function App() {
     return map;
   }, [items]);
 
-  const formFieldsByPage = useMemo(() => {
-    const map = new Map<number, typeof formFields>();
-    for (const field of formFields) {
-      const list = map.get(field.page) ?? [];
-      list.push(field);
-      map.set(field.page, list);
+  const formPlacementsByPage = useMemo(() => {
+    const map = new Map<number, typeof formPlacements>();
+    for (const placement of formPlacements) {
+      const list = map.get(placement.page) ?? [];
+      list.push(placement);
+      map.set(placement.page, list);
     }
     return map;
-  }, [formFields]);
+  }, [formPlacements]);
 
   const lang = detectLocale();
   const t = makeTranslator(lang);
@@ -1240,7 +1240,7 @@ export default function App() {
               {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => {
                 const viewport = pageViewports[pageNum - 1];
                 const itemsOnPage = itemsByPage.get(pageNum) ?? [];
-                const formFieldsOnPage = formFieldsByPage.get(pageNum) ?? [];
+                const formPlacementsOnPage = formPlacementsByPage.get(pageNum) ?? [];
 
                 return (
                   <div className="page-stage" key={pageNum}>
@@ -1284,13 +1284,17 @@ export default function App() {
                       onPointerDown={(e) => startDraw(e, pageNum)}
                       aria-label="overlay"
                     >
-                      {viewport && formFieldsOnPage.map(field => (
+                      {viewport && formPlacementsOnPage.map(placement => (
                         <FormFieldOverlay
-                          key={field.name}
-                          field={field}
+                          key={
+                            placement.kind === "radio-option"
+                              ? `${placement.field.name}:${placement.option.value}`
+                              : placement.field.name
+                          }
+                          placement={placement}
                           viewport={viewport}
-                          value={formValues[field.name]}
-                          onChange={(v) => setFormValue(field.name, v)}
+                          values={formValues}
+                          onChange={setFormValue}
                         />
                       ))}
                       {viewport && itemsOnPage.map(item => (

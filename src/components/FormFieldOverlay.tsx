@@ -1,60 +1,98 @@
 import type { PageViewport } from "pdfjs-dist/types/src/display/display_utils";
 import { pdfRectToCss } from "../pdf/coords";
-import type { FieldDescriptor } from "../hooks/useFormFields";
+import type { FieldPlacement, FormValues } from "../hooks/useFormFields";
 
 type Props = {
-  field: FieldDescriptor;
+  placement: FieldPlacement;
   viewport: PageViewport;
-  value: string | boolean | undefined;
-  onChange: (value: string | boolean) => void;
+  values: FormValues;
+  onChange: (fieldName: string, value: string | boolean | null) => void;
 };
 
 /**
- * Render a single native PDF form field as an editable DOM node
- * positioned over the rasterised page. Text fields become inputs,
- * checkboxes become a centered square — both write back into the
- * shared FormValues map via `onChange`.
+ * Render a single PDF form widget over the rasterised page. The four
+ * placement kinds dispatch to distinct DOM controls : text input,
+ * checkbox, radio circle and dropdown / list box.
  */
-export function FormFieldOverlay({ field, viewport, value, onChange }: Props) {
-  const css = pdfRectToCss(field.rect, viewport);
+export function FormFieldOverlay({ placement, viewport, values, onChange }: Props) {
+  const css = pdfRectToCss(placement.rect, viewport);
+  const baseStyle = {
+    left: css.left,
+    top: css.top,
+    width: css.width,
+    height: css.height
+  };
 
-  if (field.type === "text") {
+  if (placement.kind === "text") {
+    const value = values[placement.field.name];
     return (
       <input
         type="text"
         className="form-field text"
-        style={{
-          left: css.left,
-          top: css.top,
-          width: css.width,
-          height: css.height,
-          // Scale the inline font to the page zoom so it stays legible.
-          fontSize: Math.max(10, css.height * 0.6)
-        }}
+        style={{ ...baseStyle, fontSize: Math.max(10, css.height * 0.6) }}
         value={typeof value === "string" ? value : ""}
-        maxLength={field.maxLength}
-        onChange={(e) => onChange(e.target.value)}
-        // Pointer events should stay on the input, not bubble up to the
-        // overlay's draw / pan handler, so the user can click and drag
-        // a selection inside the field.
+        maxLength={placement.field.maxLength}
+        onChange={(e) => onChange(placement.field.name, e.target.value)}
         onPointerDown={(e) => e.stopPropagation()}
       />
     );
   }
 
+  if (placement.kind === "checkbox") {
+    const value = values[placement.field.name];
+    return (
+      <input
+        type="checkbox"
+        className="form-field checkbox"
+        style={baseStyle}
+        checked={Boolean(value)}
+        onChange={(e) => onChange(placement.field.name, e.target.checked)}
+        onPointerDown={(e) => e.stopPropagation()}
+      />
+    );
+  }
+
+  if (placement.kind === "radio-option") {
+    const current = values[placement.field.name];
+    return (
+      <input
+        type="radio"
+        className="form-field radio"
+        style={baseStyle}
+        // `name` is shared across the group's options so the browser
+        // enforces single-selection without us tracking it manually.
+        name={placement.field.name}
+        value={placement.option.value}
+        checked={current === placement.option.value}
+        onChange={(e) => {
+          if (e.target.checked) onChange(placement.field.name, placement.option.value);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      />
+    );
+  }
+
+  // placement.kind === "choice"
+  const value = values[placement.field.name];
   return (
-    <input
-      type="checkbox"
-      className="form-field checkbox"
-      style={{
-        left: css.left,
-        top: css.top,
-        width: css.width,
-        height: css.height
-      }}
-      checked={Boolean(value)}
-      onChange={(e) => onChange(e.target.checked)}
+    <select
+      className={"form-field choice" + (placement.field.combo ? " combo" : " list")}
+      style={{ ...baseStyle, fontSize: Math.max(10, css.height * 0.5) }}
+      value={typeof value === "string" ? value : ""}
+      onChange={(e) => onChange(placement.field.name, e.target.value)}
       onPointerDown={(e) => e.stopPropagation()}
-    />
+    >
+      {/* Render an empty option only when the current value is not in the list,
+          so the dropdown can express "nothing selected" without losing the
+          original choices. */}
+      {!placement.field.options.some((o) => o.exportValue === value) && (
+        <option value="" />
+      )}
+      {placement.field.options.map((opt) => (
+        <option key={opt.exportValue} value={opt.exportValue}>
+          {opt.displayValue}
+        </option>
+      ))}
+    </select>
   );
 }

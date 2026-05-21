@@ -1,4 +1,14 @@
-import { PDFDocument, PDFCheckBox, PDFTextField, StandardFonts, rgb, degrees } from "pdf-lib";
+import {
+  PDFCheckBox,
+  PDFDocument,
+  PDFDropdown,
+  PDFOptionList,
+  PDFRadioGroup,
+  PDFTextField,
+  StandardFonts,
+  rgb,
+  degrees
+} from "pdf-lib";
 import type { Item, SignatureAsset } from "../types";
 import { HIGHLIGHT_OPACITY } from "../constants";
 import { parseHexColor } from "../utils/color";
@@ -11,8 +21,9 @@ function hexToRgb(color: string) {
   return rgb(channels.r / 255, channels.g / 255, channels.b / 255);
 }
 
-/** Native AcroForm values keyed by field name. */
-export type FormValues = Record<string, string | boolean>;
+/** Native AcroForm values keyed by field name. Null on a radio group
+ *  clears the selection. */
+export type FormValues = Record<string, string | boolean | null>;
 
 export async function exportFlattenedPdf(args: {
   originalPdfBytes: Uint8Array;
@@ -52,6 +63,20 @@ export async function exportFlattenedPdf(args: {
         } else if (field instanceof PDFCheckBox && typeof value === "boolean") {
           if (value) field.check();
           else field.uncheck();
+        } else if (field instanceof PDFRadioGroup) {
+          if (value === null || value === "") {
+            field.clear();
+          } else if (typeof value === "string") {
+            // `select` throws if the option is not part of the group ;
+            // swallow so stale state cannot abort the whole export.
+            try { field.select(value); } catch { /* ignore unknown option */ }
+          }
+        } else if ((field instanceof PDFDropdown || field instanceof PDFOptionList) && typeof value === "string") {
+          if (value === "") {
+            field.clear();
+          } else {
+            try { field.select(value); } catch { /* ignore unknown option */ }
+          }
         }
       }
     } catch (err) {

@@ -10,6 +10,10 @@ type Annotation = {
   checkBox?: boolean;
   radioButton?: boolean;
   pushButton?: boolean;
+  buttonValue?: unknown;
+  exportValue?: unknown;
+  combo?: boolean;
+  options?: Array<{ exportValue: string; displayValue: string }>;
   rect?: [number, number, number, number];
   maxLen?: number;
 };
@@ -83,17 +87,98 @@ describe("useFormFields", () => {
     expect(h.current.values).toEqual({ agree: false, newsletter: true });
   });
 
-  it("skips radio buttons, push buttons, signatures and combo boxes", async () => {
+  it("skips push buttons and signature widgets", async () => {
     const doc = fakeDoc([[
-      { subtype: "Widget", fieldType: "Btn", radioButton: true, fieldName: "gender_m", rect: [0, 0, 12, 12] },
       { subtype: "Widget", fieldType: "Btn", pushButton: true, fieldName: "submit", rect: [0, 0, 12, 12] },
-      { subtype: "Widget", fieldType: "Sig", fieldName: "sig", rect: [0, 0, 100, 20] },
-      { subtype: "Widget", fieldType: "Ch", fieldName: "country", rect: [0, 0, 100, 20] }
+      { subtype: "Widget", fieldType: "Sig", fieldName: "sig", rect: [0, 0, 100, 20] }
     ]]);
     const h = renderHook(doc);
-    // Wait a microtask for the enumeration to settle, then assert nothing was discovered.
     await new Promise((r) => setTimeout(r, 0));
     expect(h.current.fields).toEqual([]);
+  });
+
+  it("groups radio-button widgets sharing a fieldName into a single descriptor", async () => {
+    const doc = fakeDoc([[
+      {
+        subtype: "Widget", fieldType: "Btn", radioButton: true,
+        fieldName: "gender", buttonValue: "Male",
+        fieldValue: "Female", rect: [10, 10, 22, 22]
+      },
+      {
+        subtype: "Widget", fieldType: "Btn", radioButton: true,
+        fieldName: "gender", buttonValue: "Female",
+        fieldValue: "Female", rect: [30, 10, 42, 22]
+      }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.fields).toHaveLength(1));
+    const field = h.current.fields[0];
+    expect(field.type).toBe("radio");
+    if (field.type !== "radio") throw new Error("type narrowing");
+    expect(field.options.map((o) => o.value)).toEqual(["Male", "Female"]);
+    expect(field.defaultValue).toBe("Female");
+    expect(h.current.values.gender).toBe("Female");
+  });
+
+  it("uses exportValue as the radio on-value when buttonValue is absent", async () => {
+    const doc = fakeDoc([[
+      { subtype: "Widget", fieldType: "Btn", radioButton: true, fieldName: "color", exportValue: "Red", rect: [0, 0, 10, 10] }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.fields).toHaveLength(1));
+    const field = h.current.fields[0];
+    if (field.type !== "radio") throw new Error("type narrowing");
+    expect(field.options[0].value).toBe("Red");
+  });
+
+  it("expands a radio group to one placement per option", async () => {
+    const doc = fakeDoc([[
+      { subtype: "Widget", fieldType: "Btn", radioButton: true, fieldName: "g", buttonValue: "A", rect: [0, 0, 10, 10] },
+      { subtype: "Widget", fieldType: "Btn", radioButton: true, fieldName: "g", buttonValue: "B", rect: [20, 0, 30, 10] },
+      { subtype: "Widget", fieldType: "Btn", radioButton: true, fieldName: "g", buttonValue: "C", rect: [40, 0, 50, 10] }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.placements).toHaveLength(3));
+    expect(h.current.placements.every((p) => p.kind === "radio-option")).toBe(true);
+  });
+
+  it("discovers a choice field with its options and combo flag", async () => {
+    const doc = fakeDoc([[
+      {
+        subtype: "Widget", fieldType: "Ch", fieldName: "country",
+        combo: true,
+        options: [
+          { exportValue: "fr", displayValue: "France" },
+          { exportValue: "de", displayValue: "Germany" }
+        ],
+        fieldValue: "fr", rect: [0, 0, 100, 20]
+      }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.fields).toHaveLength(1));
+    const field = h.current.fields[0];
+    expect(field.type).toBe("choice");
+    if (field.type !== "choice") throw new Error("type narrowing");
+    expect(field.combo).toBe(true);
+    expect(field.options).toHaveLength(2);
+    expect(field.defaultValue).toBe("fr");
+    expect(h.current.values.country).toBe("fr");
+  });
+
+  it("treats a list box (combo=false) the same way as a dropdown for state purposes", async () => {
+    const doc = fakeDoc([[
+      {
+        subtype: "Widget", fieldType: "Ch", fieldName: "lang",
+        combo: false,
+        options: [{ exportValue: "en", displayValue: "English" }],
+        rect: [0, 0, 100, 20]
+      }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.fields).toHaveLength(1));
+    const field = h.current.fields[0];
+    if (field.type !== "choice") throw new Error("type narrowing");
+    expect(field.combo).toBe(false);
   });
 
   it("walks every page", async () => {
@@ -103,7 +188,9 @@ describe("useFormFields", () => {
     ]);
     const h = renderHook(doc);
     await waitFor(() => expect(h.current.fields).toHaveLength(2));
-    expect(h.current.fields.map((f) => f.page)).toEqual([1, 2]);
+    // Only non-radio descriptors carry a top-level page ; assert via
+    // placements which always do.
+    expect(h.current.placements.map((p) => p.page)).toEqual([1, 2]);
   });
 
   it("setValue updates a single entry without touching the others", async () => {

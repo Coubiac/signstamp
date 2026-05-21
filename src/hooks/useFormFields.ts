@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
 import type { PdfRect } from "../types";
 
 /**
- * Native PDF form field discovered via pdf.js page annotations.
- * MVP scope : text fields (PDF subtype "Tx") and checkboxes (subtype
- * "Btn" with checkBox=true). Other widget kinds (radio, combo box,
- * signature) are skipped.
+ * Native PDF form fields surfaced via pdf.js page annotations.
+ * Supported : text ("Tx"), checkbox ("Btn" + checkBox), radio group
+ * ("Btn" + radioButton) and choice fields ("Ch", both combo and list).
+ * Push buttons are skipped — their behaviour is typically tied to
+ * JavaScript actions we cannot replay.
  */
+
 export type TextFieldDescriptor = {
   type: "text";
   name: string;
@@ -25,15 +27,61 @@ export type CheckboxFieldDescriptor = {
   defaultValue: boolean;
 };
 
-export type FieldDescriptor = TextFieldDescriptor | CheckboxFieldDescriptor;
+export type RadioOption = {
+  /** Export value of this specific widget — the value written when the option is selected. */
+  value: string;
+  page: number;
+  rect: PdfRect;
+};
 
-/** In-memory value map keyed by `fieldName`. */
-export type FormValues = Record<string, string | boolean>;
+export type RadioGroupDescriptor = {
+  type: "radio";
+  name: string;
+  options: RadioOption[];
+  /** Selected option's export value, or null when nothing is selected. */
+  defaultValue: string | null;
+};
+
+export type ChoiceOption = {
+  exportValue: string;
+  displayValue: string;
+};
+
+export type ChoiceFieldDescriptor = {
+  type: "choice";
+  name: string;
+  page: number;
+  rect: PdfRect;
+  options: ChoiceOption[];
+  /** True for an editable dropdown ; false for a static list box. */
+  combo: boolean;
+  defaultValue: string;
+};
+
+export type FieldDescriptor =
+  | TextFieldDescriptor
+  | CheckboxFieldDescriptor
+  | RadioGroupDescriptor
+  | ChoiceFieldDescriptor;
 
 /**
- * pdf.js shape for an annotation. We only need a subset of the keys
- * and pdf.js does not export a stable annotation type, so we describe
- * the bits we read here for type-safety at the boundary.
+ * Renderable placement for the overlay layer. Text / checkbox / choice
+ * map 1:1 to their descriptor, while a radio group expands to one
+ * placement per option so each radio circle can be drawn independently.
+ */
+export type FieldPlacement =
+  | { kind: "text"; page: number; rect: PdfRect; field: TextFieldDescriptor }
+  | { kind: "checkbox"; page: number; rect: PdfRect; field: CheckboxFieldDescriptor }
+  | { kind: "choice"; page: number; rect: PdfRect; field: ChoiceFieldDescriptor }
+  | { kind: "radio-option"; page: number; rect: PdfRect; field: RadioGroupDescriptor; option: RadioOption };
+
+/** In-memory value map keyed by `fieldName`. */
+export type FormValues = Record<string, string | boolean | null>;
+
+/**
+ * pdf.js shape for an annotation. We only describe the keys we read so
+ * type-safety holds at the boundary even though pdf.js does not export
+ * a public annotation type.
  */
 type PdfJsAnnotation = {
   subtype?: string;
@@ -43,6 +91,10 @@ type PdfJsAnnotation = {
   checkBox?: boolean;
   radioButton?: boolean;
   pushButton?: boolean;
+  buttonValue?: unknown;
+  exportValue?: unknown;
+  combo?: boolean;
+  options?: Array<{ exportValue: string; displayValue: string }>;
   rect?: [number, number, number, number];
   maxLen?: number;
 };
@@ -57,8 +109,19 @@ function rectFromQuad(quad: [number, number, number, number]): PdfRect {
   };
 }
 
+/** Try the two property names pdf.js uses (across versions) for a radio's on-value. */
+function radioOptionValue(ann: PdfJsAnnotation): string | null {
+  if (typeof ann.buttonValue === "string") return ann.buttonValue;
+  if (typeof ann.exportValue === "string") return ann.exportValue;
+  return null;
+}
+
 async function enumerateFields(doc: PDFDocumentProxy): Promise<FieldDescriptor[]> {
-  const fields: FieldDescriptor[] = [];
+  // First pass : collect everything by field name so radio groups can
+  // be assembled across their multiple widgets (which may even live on
+  // different pages in some forms).
+  const radioByName = new Map<string, RadioGroupDescriptor>();
+  const simpleFields: FieldDescriptor[] = [];
 
   for (let i = 1; i <= doc.numPages; i += 1) {
     const page = await doc.getPage(i);
@@ -68,9 +131,9 @@ async function enumerateFields(doc: PDFDocumentProxy): Promise<FieldDescriptor[]
       if (ann.subtype !== "Widget") continue;
       if (!ann.fieldName || !ann.rect) continue;
 
-      // Text field (PDF subtype "Tx").
+      // Text field.
       if (ann.fieldType === "Tx") {
-        fields.push({
+        simpleFields.push({
           type: "text",
           name: ann.fieldName,
           page: i,
@@ -81,31 +144,85 @@ async function enumerateFields(doc: PDFDocumentProxy): Promise<FieldDescriptor[]
         continue;
       }
 
-      // Checkbox : subtype "Btn" with checkBox=true. Skip radio and push-button buttons.
-      if (ann.fieldType === "Btn" && ann.checkBox && !ann.radioButton && !ann.pushButton) {
-        // pdf.js reports the on-state value via fieldValue when the box is checked,
-        // or "Off" / undefined otherwise. Anything non-"Off" counts as checked.
+      // Choice (dropdown / list box). Multi-select lists are flattened
+      // to their first selected entry — adequate for admin PDFs.
+      if (ann.fieldType === "Ch") {
         const raw = ann.fieldValue;
-        const defaultValue = typeof raw === "string" ? raw !== "Off" : Boolean(raw);
-        fields.push({
-          type: "checkbox",
+        const defaultValue = typeof raw === "string"
+          ? raw
+          : Array.isArray(raw) && typeof raw[0] === "string" ? raw[0] : "";
+        simpleFields.push({
+          type: "choice",
           name: ann.fieldName,
           page: i,
           rect: rectFromQuad(ann.rect),
+          options: Array.isArray(ann.options) ? ann.options : [],
+          combo: Boolean(ann.combo),
           defaultValue
         });
+        continue;
+      }
+
+      // Button family : skip push buttons, route checkboxes to their
+      // own descriptor, accumulate radios into the per-name group.
+      if (ann.fieldType === "Btn") {
+        if (ann.pushButton) continue;
+
+        if (ann.checkBox) {
+          const raw = ann.fieldValue;
+          const defaultValue = typeof raw === "string" ? raw !== "Off" : Boolean(raw);
+          simpleFields.push({
+            type: "checkbox",
+            name: ann.fieldName,
+            page: i,
+            rect: rectFromQuad(ann.rect),
+            defaultValue
+          });
+          continue;
+        }
+
+        if (ann.radioButton) {
+          const optionValue = radioOptionValue(ann);
+          if (!optionValue) continue; // a radio widget without an on-value can't be selected meaningfully.
+          const group = radioByName.get(ann.fieldName) ?? {
+            type: "radio" as const,
+            name: ann.fieldName,
+            options: [] as RadioOption[],
+            defaultValue: null as string | null
+          };
+          group.options.push({ value: optionValue, page: i, rect: rectFromQuad(ann.rect) });
+          // The selected value lives on each widget's fieldValue ; capture
+          // the first non-"Off" one we encounter (they should all agree).
+          if (group.defaultValue === null && typeof ann.fieldValue === "string" && ann.fieldValue !== "Off") {
+            group.defaultValue = ann.fieldValue;
+          }
+          radioByName.set(ann.fieldName, group);
+        }
       }
     }
   }
 
-  return fields;
+  return [...simpleFields, ...radioByName.values()];
+}
+
+function placementsFromFields(fields: FieldDescriptor[]): FieldPlacement[] {
+  const placements: FieldPlacement[] = [];
+  for (const field of fields) {
+    if (field.type === "radio") {
+      for (const option of field.options) {
+        placements.push({ kind: "radio-option", page: option.page, rect: option.rect, field, option });
+      }
+    } else {
+      placements.push({ kind: field.type, page: field.page, rect: field.rect, field } as FieldPlacement);
+    }
+  }
+  return placements;
 }
 
 /**
- * Discover form fields when a PDF document loads and manage the
- * in-memory values until the user exports. The hook intentionally
- * keeps the field descriptors immutable (they reflect the file's
- * structure) and only the `values` map changes over time.
+ * Discover native form fields when a PDF document loads, manage the
+ * in-memory values until the user exports, and expose a flat
+ * `placements` list ready to be grouped by page for rendering.
  */
 export function useFormFields(pdfDoc: PDFDocumentProxy | null) {
   const [fields, setFields] = useState<FieldDescriptor[]>([]);
@@ -137,7 +254,9 @@ export function useFormFields(pdfDoc: PDFDocumentProxy | null) {
     };
   }, [pdfDoc]);
 
-  function setValue(name: string, value: string | boolean) {
+  const placements = useMemo(() => placementsFromFields(fields), [fields]);
+
+  function setValue(name: string, value: string | boolean | null) {
     setValues((prev) => ({ ...prev, [name]: value }));
   }
 
@@ -147,5 +266,5 @@ export function useFormFields(pdfDoc: PDFDocumentProxy | null) {
     setValues(cleared);
   }
 
-  return { fields, values, setValue, reset };
+  return { fields, placements, values, setValue, reset };
 }
