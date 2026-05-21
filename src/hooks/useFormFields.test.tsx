@@ -16,6 +16,8 @@ type Annotation = {
   options?: Array<{ exportValue: string; displayValue: string }>;
   rect?: [number, number, number, number];
   maxLen?: number;
+  resetForm?: unknown;
+  alternativeText?: unknown;
 };
 
 function fakeDoc(pages: Annotation[][]): any {
@@ -87,14 +89,67 @@ describe("useFormFields", () => {
     expect(h.current.values).toEqual({ agree: false, newsletter: true });
   });
 
-  it("skips push buttons and signature widgets", async () => {
+  it("skips signature widgets but surfaces push buttons", async () => {
     const doc = fakeDoc([[
       { subtype: "Widget", fieldType: "Btn", pushButton: true, fieldName: "submit", rect: [0, 0, 12, 12] },
       { subtype: "Widget", fieldType: "Sig", fieldName: "sig", rect: [0, 0, 100, 20] }
     ]]);
     const h = renderHook(doc);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(h.current.fields).toEqual([]);
+    await waitFor(() => expect(h.current.fields).toHaveLength(1));
+    expect(h.current.fields[0].type).toBe("button");
+  });
+
+  it("flags a push button with a ResetForm action as a Reset button", async () => {
+    const doc = fakeDoc([[
+      {
+        subtype: "Widget", fieldType: "Btn", pushButton: true,
+        fieldName: "btn.clear", buttonValue: "Effacer",
+        resetForm: { fields: [], flags: 0 },
+        rect: [10, 10, 80, 30]
+      }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.fields).toHaveLength(1));
+    const field = h.current.fields[0];
+    if (field.type !== "button") throw new Error("type narrowing");
+    expect(field.isReset).toBe(true);
+    expect(field.label).toBe("Effacer");
+  });
+
+  it("treats a push button without a ResetForm action as inert", async () => {
+    const doc = fakeDoc([[
+      {
+        subtype: "Widget", fieldType: "Btn", pushButton: true,
+        fieldName: "btn.submit", buttonValue: "Envoyer",
+        rect: [0, 0, 80, 30]
+      }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.fields).toHaveLength(1));
+    const field = h.current.fields[0];
+    if (field.type !== "button") throw new Error("type narrowing");
+    expect(field.isReset).toBe(false);
+  });
+
+  it("falls back to fieldName when neither alternativeText nor buttonValue is present", async () => {
+    const doc = fakeDoc([[
+      { subtype: "Widget", fieldType: "Btn", pushButton: true, fieldName: "reset_all", rect: [0, 0, 50, 20] }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.fields).toHaveLength(1));
+    const field = h.current.fields[0];
+    if (field.type !== "button") throw new Error("type narrowing");
+    expect(field.label).toBe("reset_all");
+  });
+
+  it("does not allocate a value entry for a push button", async () => {
+    const doc = fakeDoc([[
+      { subtype: "Widget", fieldType: "Btn", pushButton: true, fieldName: "reset", resetForm: {}, rect: [0, 0, 10, 10] },
+      { subtype: "Widget", fieldType: "Tx", fieldName: "name", fieldValue: "Jane", rect: [0, 0, 10, 10] }
+    ]]);
+    const h = renderHook(doc);
+    await waitFor(() => expect(h.current.fields).toHaveLength(2));
+    expect(Object.keys(h.current.values)).toEqual(["name"]);
   });
 
   it("groups radio-button widgets sharing a fieldName into a single descriptor", async () => {

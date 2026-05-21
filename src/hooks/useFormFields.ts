@@ -58,11 +58,25 @@ export type ChoiceFieldDescriptor = {
   defaultValue: string;
 };
 
+export type PushButtonDescriptor = {
+  type: "button";
+  name: string;
+  page: number;
+  rect: PdfRect;
+  /** True when the button's PDF action is "ResetForm". Submit and
+   *  JavaScript actions cannot be replayed reliably so they become
+   *  inert overlays — flagged here for the renderer to decide. */
+  isReset: boolean;
+  /** Best-effort caption : alternativeText > buttonValue > fieldName. */
+  label: string;
+};
+
 export type FieldDescriptor =
   | TextFieldDescriptor
   | CheckboxFieldDescriptor
   | RadioGroupDescriptor
-  | ChoiceFieldDescriptor;
+  | ChoiceFieldDescriptor
+  | PushButtonDescriptor;
 
 /**
  * Renderable placement for the overlay layer. Text / checkbox / choice
@@ -73,7 +87,8 @@ export type FieldPlacement =
   | { kind: "text"; page: number; rect: PdfRect; field: TextFieldDescriptor }
   | { kind: "checkbox"; page: number; rect: PdfRect; field: CheckboxFieldDescriptor }
   | { kind: "choice"; page: number; rect: PdfRect; field: ChoiceFieldDescriptor }
-  | { kind: "radio-option"; page: number; rect: PdfRect; field: RadioGroupDescriptor; option: RadioOption };
+  | { kind: "radio-option"; page: number; rect: PdfRect; field: RadioGroupDescriptor; option: RadioOption }
+  | { kind: "button"; page: number; rect: PdfRect; field: PushButtonDescriptor };
 
 /** In-memory value map keyed by `fieldName`. */
 export type FormValues = Record<string, string | boolean | null>;
@@ -97,6 +112,11 @@ type PdfJsAnnotation = {
   options?: Array<{ exportValue: string; displayValue: string }>;
   rect?: [number, number, number, number];
   maxLen?: number;
+  /** pdf.js attaches a truthy `resetForm` payload on widgets whose
+   *  action dictionary is `/S /ResetForm`. Shape is unstable across
+   *  pdf.js versions, so the boundary stays loose. */
+  resetForm?: unknown;
+  alternativeText?: unknown;
 };
 
 function rectFromQuad(quad: [number, number, number, number]): PdfRect {
@@ -163,10 +183,27 @@ async function enumerateFields(doc: PDFDocumentProxy): Promise<FieldDescriptor[]
         continue;
       }
 
-      // Button family : skip push buttons, route checkboxes to their
-      // own descriptor, accumulate radios into the per-name group.
+      // Button family : push buttons become descriptors (functional
+       // only when they carry a ResetForm action), checkboxes route
+       // to their own descriptor, radios accumulate into the per-name
+       // group.
       if (ann.fieldType === "Btn") {
-        if (ann.pushButton) continue;
+        if (ann.pushButton) {
+          const label = typeof ann.alternativeText === "string" && ann.alternativeText.trim()
+            ? ann.alternativeText
+            : typeof ann.buttonValue === "string" && ann.buttonValue.trim()
+              ? ann.buttonValue
+              : ann.fieldName;
+          simpleFields.push({
+            type: "button",
+            name: ann.fieldName,
+            page: i,
+            rect: rectFromQuad(ann.rect),
+            isReset: Boolean(ann.resetForm),
+            label
+          });
+          continue;
+        }
 
         if (ann.checkBox) {
           const raw = ann.fieldValue;
@@ -242,7 +279,11 @@ export function useFormFields(pdfDoc: PDFDocumentProxy | null) {
         if (cancelled) return;
         setFields(discovered);
         const initial: FormValues = {};
-        for (const field of discovered) initial[field.name] = field.defaultValue;
+        for (const field of discovered) {
+          // Push buttons trigger actions and do not own a value.
+          if (field.type === "button") continue;
+          initial[field.name] = field.defaultValue;
+        }
         setValues(initial);
       } catch (err) {
         console.error("Form field enumeration failed:", err);
@@ -262,7 +303,10 @@ export function useFormFields(pdfDoc: PDFDocumentProxy | null) {
 
   function reset() {
     const cleared: FormValues = {};
-    for (const field of fields) cleared[field.name] = field.defaultValue;
+    for (const field of fields) {
+      if (field.type === "button") continue;
+      cleared[field.name] = field.defaultValue;
+    }
     setValues(cleared);
   }
 

@@ -7,6 +7,11 @@ type Props = {
   viewport: PageViewport;
   values: FormValues;
   onChange: (fieldName: string, value: string | boolean | null) => void;
+  /**
+   * Invoked when the user activates a push-button widget. The host
+   * decides what to do (e.g. call `reset()` for `isReset` buttons).
+   */
+  onButtonAction?: (button: { name: string; isReset: boolean }) => void;
 };
 
 /**
@@ -14,7 +19,7 @@ type Props = {
  * placement kinds dispatch to distinct DOM controls : text input,
  * checkbox, radio circle and dropdown / list box.
  */
-export function FormFieldOverlay({ placement, viewport, values, onChange }: Props) {
+export function FormFieldOverlay({ placement, viewport, values, onChange, onButtonAction }: Props) {
   const css = pdfRectToCss(placement.rect, viewport);
   const baseStyle = {
     left: css.left,
@@ -49,6 +54,23 @@ export function FormFieldOverlay({ placement, viewport, values, onChange }: Prop
         onChange={(e) => onChange(placement.field.name, e.target.checked)}
         onPointerDown={(e) => e.stopPropagation()}
       />
+    );
+  }
+
+  if (placement.kind === "button") {
+    const { isReset, label, name } = placement.field;
+    return (
+      <button
+        type="button"
+        className={"form-field button" + (isReset ? " reset" : " inert")}
+        style={baseStyle}
+        disabled={!isReset}
+        title={isReset ? `Reset : ${label}` : `${label} (action not supported)`}
+        onClick={() => { if (isReset) onButtonAction?.({ name, isReset }); }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {label}
+      </button>
     );
   }
 

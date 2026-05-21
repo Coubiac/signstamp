@@ -71,7 +71,12 @@ export default function App() {
     getCanvas: (pageNum) => canvasRefs.current.get(pageNum) ?? null
   });
 
-  const { placements: formPlacements, values: formValues, setValue: setFormValue } = useFormFields(pdfDoc);
+  const {
+    placements: formPlacements,
+    values: formValues,
+    setValue: setFormValue,
+    reset: resetFormValues
+  } = useFormFields(pdfDoc);
 
   const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
   const [signatures, setSignatures] = useSignatures({
@@ -1295,6 +1300,7 @@ export default function App() {
                           viewport={viewport}
                           values={formValues}
                           onChange={setFormValue}
+                          onButtonAction={(b) => { if (b.isReset) resetFormValues(); }}
                         />
                       ))}
                       {viewport && itemsOnPage.map(item => (
