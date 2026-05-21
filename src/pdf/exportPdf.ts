@@ -1,14 +1,14 @@
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
 import type { Item, SignatureAsset } from "../types";
 import { HIGHLIGHT_OPACITY } from "../constants";
+import { parseHexColor } from "../utils/color";
 
+/** pdf-lib accepts channels in the 0..1 range — black is the
+ *  conservative fallback for items with a malformed color value. */
 function hexToRgb(color: string) {
-  const value = color.replace("#", "").trim();
-  if (value.length !== 6) return rgb(0, 0, 0);
-  const r = parseInt(value.slice(0, 2), 16) / 255;
-  const g = parseInt(value.slice(2, 4), 16) / 255;
-  const b = parseInt(value.slice(4, 6), 16) / 255;
-  return rgb(r, g, b);
+  const channels = parseHexColor(color);
+  if (!channels) return rgb(0, 0, 0);
+  return rgb(channels.r / 255, channels.g / 255, channels.b / 255);
 }
 
 export async function exportFlattenedPdf(args: {

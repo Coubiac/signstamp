@@ -16,6 +16,7 @@ import {
   TEXT_DEFAULTS,
   ZOOM
 } from "./constants";
+import { parseHexColor, toCssRgba } from "./utils/color";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -1132,13 +1133,12 @@ export default function App() {
     };
   }
 
-  function hexToRgba(hex: string, alpha: number) {
-    const value = hex.replace("#", "").trim();
-    if (value.length !== 6) return `rgba(253, 224, 71, ${alpha})`;
-    const r = parseInt(value.slice(0, 2), 16);
-    const g = parseInt(value.slice(2, 4), 16);
-    const b = parseInt(value.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  // Fallback channels for malformed colors on the highlight overlay :
+  // 253/224/71 is the parsed form of `highlightDefault` (#fde047).
+  const HIGHLIGHT_FALLBACK_CHANNELS = { r: 253, g: 224, b: 71 } as const;
+
+  function highlightFill(color: string, alpha: number): string {
+    return toCssRgba(parseHexColor(color) ?? HIGHLIGHT_FALLBACK_CHANNELS, alpha);
   }
 
   function updateSelectedText(partial: Partial<TextItem>) {
@@ -1784,7 +1784,7 @@ export default function App() {
                     }
 
                     if (item.type === "highlight") {
-                      const fill = hexToRgba(item.color ?? highlightDefault, HIGHLIGHT_OPACITY);
+                      const fill = highlightFill(item.color ?? highlightDefault, HIGHLIGHT_OPACITY);
                       return (
                         <div
                           key={item.id}
