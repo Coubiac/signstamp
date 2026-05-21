@@ -20,6 +20,7 @@ import { useSnippets } from "./hooks/useSnippets";
 import { useSignatures } from "./hooks/useSignatures";
 import { useDragMachine } from "./hooks/useDragMachine";
 import { usePdfDocument } from "./hooks/usePdfDocument";
+import { useTextStyle } from "./hooks/useTextStyle";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
@@ -137,11 +138,7 @@ export default function App() {
     { value: "#16a34a", label: t("color_green") }
   ];
   const [drawStrokeWidth, setDrawStrokeWidth] = useState(1.5);
-  const [textFontSize, setTextFontSize] = useState(12);
-  const [textFontFamily, setTextFontFamily] = useState<"sans" | "serif" | "mono">("sans");
-  const [textBold, setTextBold] = useState(false);
-  const [textUnderline, setTextUnderline] = useState(false);
-  const [textStrike, setTextStrike] = useState(false);
+  const [textStyle, updateTextStyle] = useTextStyle();
 
   const fontOptions = [
     { value: "sans" as const, label: t("font_sans") },
@@ -200,16 +197,18 @@ export default function App() {
   useEffect(() => {
     if (!selectedItem) return;
     if (selectedItem.type === "text") {
-      setTextFontSize(selectedItem.fontSize);
-      setTextFontFamily(selectedItem.fontFamily ?? "sans");
-      setTextBold(Boolean(selectedItem.bold));
-      setTextUnderline(Boolean(selectedItem.underline));
-      setTextStrike(Boolean(selectedItem.strike));
+      updateTextStyle({
+        fontSize: selectedItem.fontSize,
+        fontFamily: selectedItem.fontFamily ?? "sans",
+        bold: Boolean(selectedItem.bold),
+        underline: Boolean(selectedItem.underline),
+        strike: Boolean(selectedItem.strike)
+      });
     }
     if (selectedItem.type === "ellipse" || selectedItem.type === "line" || selectedItem.type === "arrow") {
       setDrawStrokeWidth(selectedItem.strokeWidth);
     }
-  }, [selectedItem]);
+  }, [selectedItem, updateTextStyle]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -434,10 +433,10 @@ export default function App() {
         value,
         fontSize,
         color: inkColor,
-        fontFamily: textFontFamily,
-        bold: textBold,
-        underline: textUnderline,
-        strike: textStrike
+        fontFamily: textStyle.fontFamily,
+        bold: textStyle.bold,
+        underline: textStyle.underline,
+        strike: textStyle.strike
       });
       if (startEditing) {
         setEditingId(id);
@@ -465,14 +464,14 @@ export default function App() {
 
     // Outil texte
     if (tool === "text") {
-      addTextItem("", TEXT_DEFAULTS.widthPx, TEXT_DEFAULTS.heightPx, textFontSize, true);
+      addTextItem("", TEXT_DEFAULTS.widthPx, TEXT_DEFAULTS.heightPx, textStyle.fontSize, true);
       return;
     }
 
     // Outil date
     if (tool === "date") {
       const now = new Date();
-      addTextItem(formatLocaleDate(lang, now), DATE_DEFAULTS.widthPx, DATE_DEFAULTS.heightPx, textFontSize);
+      addTextItem(formatLocaleDate(lang, now), DATE_DEFAULTS.widthPx, DATE_DEFAULTS.heightPx, textStyle.fontSize);
       return;
     }
 
@@ -809,12 +808,12 @@ export default function App() {
       page: pageNum,
       rect: { x: xPdf, y: yPdf - hPdf, w: wPdf, h: hPdf },
       value,
-      fontSize: textFontSize,
+      fontSize: textStyle.fontSize,
       color: inkColor,
-      fontFamily: textFontFamily,
-      bold: textBold,
-      underline: textUnderline,
-      strike: textStrike
+      fontFamily: textStyle.fontFamily,
+      bold: textStyle.bold,
+      underline: textStyle.underline,
+      strike: textStyle.strike
     });
     setSelectedId(id);
     if (startEditing) {
@@ -935,10 +934,10 @@ export default function App() {
             <div className="text-group" role="group" aria-label={t("font_label")}>
               <select
                 className="text-select"
-                value={textFontFamily}
+                value={textStyle.fontFamily}
                 onChange={(e) => {
                   const next = e.target.value as "sans" | "serif" | "mono";
-                  setTextFontFamily(next);
+                  updateTextStyle({ fontFamily: next });
                   updateSelectedText({ fontFamily: next });
                 }}
                 disabled={!canEdit}
@@ -950,10 +949,10 @@ export default function App() {
               </select>
               <select
                 className="text-select"
-                value={textFontSize}
+                value={textStyle.fontSize}
                 onChange={(e) => {
                   const next = Number(e.target.value);
-                  setTextFontSize(next);
+                  updateTextStyle({ fontSize: next });
                   updateSelectedText({ fontSize: next });
                 }}
                 disabled={!canEdit}
@@ -964,10 +963,10 @@ export default function App() {
                 ))}
               </select>
               <button
-                className={"btn icon-btn" + (textBold ? " active" : "")}
+                className={"btn icon-btn" + (textStyle.bold ? " active" : "")}
                 onClick={() => {
-                  const next = !textBold;
-                  setTextBold(next);
+                  const next = !textStyle.bold;
+                  updateTextStyle({ bold: next });
                   updateSelectedText({ bold: next });
                 }}
                 title={t("bold")}
@@ -977,10 +976,10 @@ export default function App() {
                 <TextB size={18} weight="regular" />
               </button>
               <button
-                className={"btn icon-btn" + (textUnderline ? " active" : "")}
+                className={"btn icon-btn" + (textStyle.underline ? " active" : "")}
                 onClick={() => {
-                  const next = !textUnderline;
-                  setTextUnderline(next);
+                  const next = !textStyle.underline;
+                  updateTextStyle({ underline: next });
                   updateSelectedText({ underline: next });
                 }}
                 title={t("underline")}
@@ -990,10 +989,10 @@ export default function App() {
                 <TextUnderline size={18} weight="regular" />
               </button>
               <button
-                className={"btn icon-btn" + (textStrike ? " active" : "")}
+                className={"btn icon-btn" + (textStyle.strike ? " active" : "")}
                 onClick={() => {
-                  const next = !textStrike;
-                  setTextStrike(next);
+                  const next = !textStyle.strike;
+                  updateTextStyle({ strike: next });
                   updateSelectedText({ strike: next });
                 }}
                 title={t("strike")}
