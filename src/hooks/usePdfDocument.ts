@@ -74,7 +74,18 @@ export function usePdfDocument({ bytes, scale, getCanvas }: Options): Result {
 
     (async () => {
       try {
-        const loadingTask = getDocument({ data: bytes });
+        // Defense in depth : keep pdf.js from evaluating any embedded
+        // JavaScript actions, fetching remote sub-resources or
+        // expanding XFA forms. None of these are needed for our
+        // "fill & sign" flow ; opting out shrinks the attack surface
+        // a malicious PDF can exploit.
+        const loadingTask = getDocument({
+          data: bytes,
+          isEvalSupported: false,
+          disableAutoFetch: true,
+          disableStream: true,
+          enableXfa: false
+        });
         const doc = await loadingTask.promise;
         if (cancelled) return;
         setPdfDoc(doc);

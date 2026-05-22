@@ -152,6 +152,13 @@ fn save_snippets(app: tauri::AppHandle, snippets: Vec<String>) -> Result<(), Str
 #[tauri::command]
 fn save_pdf_to_path(bytes: Vec<u8>, path: String) -> Result<String, String> {
     let target = PathBuf::from(path);
+    // Defense in depth : the frontend always feeds this command a
+    // path obtained via the OS save dialog, but we still refuse
+    // anything that does not look like a PDF target so a compromised
+    // renderer cannot use this command to overwrite arbitrary files.
+    if !is_pdf_path(&target) {
+        return Err("destination invalide: extension .pdf attendue".into());
+    }
     std::fs::write(&target, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
     Ok(target.to_string_lossy().to_string())
 }
