@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::Manager;
 use tauri::Emitter;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -19,6 +20,12 @@ struct StoredSignature {
     bytes: Vec<u8>,
     natural_w: u32,
     natural_h: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredProfileEntry {
+    key: String,
+    value: String,
 }
 
 #[derive(Serialize)]
@@ -51,6 +58,14 @@ fn paraphs_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|e| format!("app data dir introuvable: {e}"))?;
     Ok(dir.join("paraphs.json"))
+}
+
+fn profile_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir introuvable: {e}"))?;
+    Ok(dir.join("profile.json"))
 }
 
 fn snippets_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -121,6 +136,30 @@ fn save_paraphs(app: tauri::AppHandle, paraphs: Vec<StoredSignature>) -> Result<
     }
 
     let bytes = serde_json::to_vec(&paraphs).map_err(|e| format!("json invalide: {e}"))?;
+    std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn load_profile(app: tauri::AppHandle) -> Result<Vec<StoredProfileEntry>, String> {
+    let path = profile_path(&app)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("lecture impossible: {e}"))?;
+    let profile = serde_json::from_slice(&bytes).map_err(|e| format!("json invalide: {e}"))?;
+    Ok(profile)
+}
+
+#[tauri::command]
+fn save_profile(app: tauri::AppHandle, profile: Vec<StoredProfileEntry>) -> Result<(), String> {
+    let path = profile_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("creation dossier impossible: {e}"))?;
+    }
+
+    let bytes = serde_json::to_vec(&profile).map_err(|e| format!("json invalide: {e}"))?;
     std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
     Ok(())
 }
@@ -272,6 +311,45 @@ fn emit_open_pdf(app: &tauri::AppHandle, path: PathBuf) {
     }
 }
 
+/// Build the application's native menu bar. Same structure on every
+/// platform (File / Edit / View / Help) ; on macOS it surfaces in the
+/// system menu bar, on Windows/Linux as an in-window menu.
+///
+/// Menu clicks emit a single `"menu"` Tauri event whose payload is the
+/// item id (e.g. "open_pdf") — the frontend listens once and dispatches.
+fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R>, tauri::Error> {
+    let file = Submenu::with_items(app, "File", true, &[
+        &MenuItem::with_id(app, "open_pdf", "Open PDF…", true, Some("CmdOrCtrl+O"))?,
+        &MenuItem::with_id(app, "export_pdf", "Export PDF…", true, Some("CmdOrCtrl+S"))?,
+        &MenuItem::with_id(app, "print_pdf", "Print", true, Some("CmdOrCtrl+P"))?,
+        &PredefinedMenuItem::separator(app)?,
+        &MenuItem::with_id(app, "profile", "Profile…", true, Some("CmdOrCtrl+Comma"))?,
+        &PredefinedMenuItem::separator(app)?,
+        &PredefinedMenuItem::quit(app, None)?,
+    ])?;
+
+    let edit = Submenu::with_items(app, "Edit", true, &[
+        &MenuItem::with_id(app, "undo", "Undo", true, Some("CmdOrCtrl+Z"))?,
+        &MenuItem::with_id(app, "clear_all", "Clear all annotations", true, None::<&str>)?,
+    ])?;
+
+    let view = Submenu::with_items(app, "View", true, &[
+        &MenuItem::with_id(app, "zoom_in", "Zoom in", true, Some("CmdOrCtrl+Equal"))?,
+        &MenuItem::with_id(app, "zoom_out", "Zoom out", true, Some("CmdOrCtrl+Minus"))?,
+        &MenuItem::with_id(app, "zoom_reset", "Reset zoom", true, Some("CmdOrCtrl+0"))?,
+        &PredefinedMenuItem::separator(app)?,
+        &MenuItem::with_id(app, "theme_light", "Light theme", true, None::<&str>)?,
+        &MenuItem::with_id(app, "theme_dark", "Dark theme", true, None::<&str>)?,
+    ])?;
+
+    let help = Submenu::with_items(app, "Help", true, &[
+        &MenuItem::with_id(app, "about", "About SignStamp", true, None::<&str>)?,
+        &MenuItem::with_id(app, "github", "GitHub", true, None::<&str>)?,
+    ])?;
+
+    Menu::with_items(app, &[&file, &edit, &view, &help])
+}
+
 fn main() {
     let mut initial_paths: Vec<PathBuf> = std::env::args_os()
         .skip(1)
@@ -282,12 +360,21 @@ fn main() {
         .manage(PendingOpen::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .menu(|app| build_app_menu(app))
+        .on_menu_event(|app, event| {
+            let action = event.id().as_ref().to_string();
+            if let Err(err) = app.emit("menu", action) {
+                eprintln!("emit menu event failed: {err}");
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             save_pdf_to_downloads,
             load_signatures,
             save_signatures,
             load_paraphs,
             save_paraphs,
+            load_profile,
+            save_profile,
             load_snippets,
             save_snippets,
             save_pdf_to_path,

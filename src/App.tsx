@@ -4,6 +4,7 @@ import type { Item, Paraph, PdfRect, SignatureAsset, Tool, TextItem } from "./ty
 import { exportFlattenedPdf } from "./pdf/exportPdf";
 import { pxDeltaToPdfDelta, pxSizeToPdfSize } from "./pdf/coords";
 import {
+  CANONICAL_PROFILE_KEYS,
   CHECK_DEFAULTS,
   DATE_DEFAULTS,
   HISTORY_LIMIT,
@@ -21,6 +22,8 @@ import { ParaphOverlay } from "./components/items/ParaphOverlay";
 import { useSnippets } from "./hooks/useSnippets";
 import { useSignatures } from "./hooks/useSignatures";
 import { useParaphAssets } from "./hooks/useParaphAssets";
+import { useProfile } from "./hooks/useProfile";
+import { ProfileModal } from "./components/ProfileModal";
 import { useDragMachine } from "./hooks/useDragMachine";
 import { usePdfDocument } from "./hooks/usePdfDocument";
 import { useTextStyle } from "./hooks/useTextStyle";
@@ -28,6 +31,8 @@ import { useFormFields } from "./hooks/useFormFields";
 import { FormFieldOverlay } from "./components/FormFieldOverlay";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { detectLocale, formatLocaleDate, getDirection, makeTranslator } from "./i18n";
 import {
   ArrowsOutCardinal,
@@ -95,6 +100,13 @@ export default function App() {
   const [editingParaphName, setEditingParaphName] = useState("");
   /** The single paraph stamped on every page, or null if none. */
   const [paraph, setParaph] = useState<Paraph | null>(null);
+
+  const [profile, setProfile] = useProfile();
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
+  /** App version read from `tauri.conf.json` once the Tauri shell is
+   *  ready ; falls back to "dev" in the plain-browser web preview. */
+  const [appVersion, setAppVersion] = useState<string>("dev");
   const [paraphSelected, setParaphSelected] = useState(false);
   /** Mini drag-state for the paraph — parallel to the item drag machine
    *  because the paraph lives outside `items[]`. The `page` captured at
@@ -164,6 +176,53 @@ export default function App() {
   useEffect(() => {
     if (selectedId !== null) setParaphSelected(false);
   }, [selectedId]);
+
+  // Native menu dispatch : the Rust side emits a single "menu" event
+  // whose payload is the item id. The ref keeps a fresh closure over
+  // current handlers so the listener can stay subscribed once.
+  const dispatchMenuActionRef = useRef<(action: string) => void>(() => {});
+  dispatchMenuActionRef.current = (action: string) => {
+    switch (action) {
+      case "open_pdf": pdfInputRef.current?.click(); break;
+      case "export_pdf": void exportPdf(); break;
+      case "print_pdf": void printPdf(); break;
+      case "profile": setShowProfileModal(true); break;
+      case "undo": undoLast(); break;
+      case "clear_all":
+        updateItems([], { record: true });
+        setParaph(null);
+        break;
+      case "zoom_in":
+        setScale((s) => Math.min(ZOOM.max, Math.round((s + ZOOM.step) * 100) / 100));
+        break;
+      case "zoom_out":
+        setScale((s) => Math.max(ZOOM.min, Math.round((s - ZOOM.step) * 100) / 100));
+        break;
+      case "zoom_reset": setScale(ZOOM.default); break;
+      case "theme_light": setThemeChoice("light"); break;
+      case "theme_dark": setThemeChoice("dark"); break;
+      case "about": setShowAboutModal(true); break;
+      case "github":
+        void openExternal("https://github.com/Coubiac/signstamp").catch((err) => {
+          console.error("Failed to open GitHub:", err);
+        });
+        break;
+    }
+  };
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unsub: (() => void) | undefined;
+    listen<string>("menu", (event) => {
+      dispatchMenuActionRef.current(event.payload);
+    }).then((u) => { unsub = u; });
+    return () => unsub?.();
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void getVersion().then(setAppVersion).catch(() => { /* keep "dev" fallback */ });
+  }, []);
 
   const lang = detectLocale();
   const t = makeTranslator(lang);
@@ -821,6 +880,24 @@ export default function App() {
     setEditingParaphName("");
   }
 
+  function updateProfileValue(key: string, value: string) {
+    setProfile(prev => prev.map(entry => entry.key === key ? { ...entry, value } : entry));
+  }
+
+  function removeProfileEntry(key: string) {
+    // Removing a canonical key would be a no-op visually (the merge
+    // on next launch would add it back empty) — callers should only
+    // wire this for custom keys.
+    setProfile(prev => prev.filter(entry => entry.key !== key));
+  }
+
+  function addCustomProfileKey(key: string) {
+    const trimmed = key.trim();
+    if (!trimmed) return;
+    if (profile.some(entry => entry.key === trimmed)) return; // ignore duplicates silently
+    setProfile(prev => [...prev, { key: trimmed, value: "" }]);
+  }
+
   function clearSignaturePad() {
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
@@ -1044,6 +1121,7 @@ export default function App() {
   const canEdit = Boolean(pdfDoc);
   const canSign = canEdit && signatures.length > 0;
   const canParaph = canEdit && paraphs.length > 0;
+  const canonicalProfileKeys = useMemo(() => new Set<string>(CANONICAL_PROFILE_KEYS), []);
   const paraphAsset = paraph ? paraphs.find(p => p.id === paraph.assetId) ?? null : null;
 
   return (
@@ -1629,6 +1707,42 @@ export default function App() {
           {pdfDoc ? t("export_note") : ""}
         </span>
       </footer>
+
+      {showProfileModal && (
+        <ProfileModal
+          onClose={() => setShowProfileModal(false)}
+          profile={profile}
+          canonicalKeys={canonicalProfileKeys}
+          onChangeValue={updateProfileValue}
+          onRemoveEntry={removeProfileEntry}
+          onAddKey={addCustomProfileKey}
+          t={t}
+          lang={lang}
+        />
+      )}
+
+      {showAboutModal && (
+        <div className="modal-backdrop" onClick={() => setShowAboutModal(false)}>
+          <div className="modal-card about-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>SignStamp</h3>
+              <button className="btn icon-btn" onClick={() => setShowAboutModal(false)} aria-label={t("signature_cancel")}>
+                ×
+              </button>
+            </div>
+            <p className="about-version">v{appVersion}</p>
+            <p className="hint">Local-first PDF fill &amp; sign.</p>
+            <div className="modal-actions">
+              <div className="modal-actions-right">
+                <button className="btn" onClick={() => {
+                  void openExternal("https://github.com/Coubiac/signstamp").catch(console.error);
+                }}>GitHub</button>
+                <button className="btn primary" onClick={() => setShowAboutModal(false)}>OK</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {padMode && (
         <div className="modal-backdrop" onClick={() => setPadMode(null)}>
