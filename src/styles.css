@@ -386,6 +386,54 @@ html, body {
   letter-spacing: 0.5px;
 }
 
+.autofill-summary {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.autofill-summary li {
+  color: var(--text);
+}
+
+.autofill-summary strong {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 6px;
+  text-align: right;
+  color: rgba(106, 160, 255, 0.95);
+}
+
+.autofill-warning {
+  color: rgba(234, 88, 12, 0.95);
+  margin: 8px 0;
+}
+
+.autofill-unmatched {
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.autofill-unmatched summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.autofill-unmatched ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.autofill-unmatched code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
 .sigitem {
   display: flex;
   gap: 10px;

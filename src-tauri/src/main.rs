@@ -331,6 +331,8 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R
     let edit = Submenu::with_items(app, "Edit", true, &[
         &MenuItem::with_id(app, "undo", "Undo", true, Some("CmdOrCtrl+Z"))?,
         &MenuItem::with_id(app, "clear_all", "Clear all annotations", true, None::<&str>)?,
+        &PredefinedMenuItem::separator(app)?,
+        &MenuItem::with_id(app, "autofill", "Auto-fill from profile", true, Some("CmdOrCtrl+Shift+F"))?,
     ])?;
 
     let view = Submenu::with_items(app, "View", true, &[

@@ -24,6 +24,9 @@ import { useSignatures } from "./hooks/useSignatures";
 import { useParaphAssets } from "./hooks/useParaphAssets";
 import { useProfile } from "./hooks/useProfile";
 import { ProfileModal } from "./components/ProfileModal";
+import { AutoFillModal } from "./components/AutoFillModal";
+import { buildPlan, type AutoFillPlan } from "./autofill/buildPlan";
+import type { TextItemLike } from "./autofill/matchByLabel";
 import { useDragMachine } from "./hooks/useDragMachine";
 import { usePdfDocument } from "./hooks/usePdfDocument";
 import { useTextStyle } from "./hooks/useTextStyle";
@@ -46,6 +49,7 @@ import {
   FilePdf,
   FloppyDisk,
   Highlighter,
+  MagicWand,
   Minus,
   Moon,
   Plus,
@@ -82,6 +86,7 @@ export default function App() {
   });
 
   const {
+    fields: formFields,
     placements: formPlacements,
     values: formValues,
     setValue: setFormValue,
@@ -107,6 +112,8 @@ export default function App() {
   /** App version read from `tauri.conf.json` once the Tauri shell is
    *  ready ; falls back to "dev" in the plain-browser web preview. */
   const [appVersion, setAppVersion] = useState<string>("dev");
+  /** The auto-fill preview modal is open whenever this is non-null. */
+  const [autoFillPlan, setAutoFillPlan] = useState<AutoFillPlan | null>(null);
   const [paraphSelected, setParaphSelected] = useState(false);
   /** Mini drag-state for the paraph — parallel to the item drag machine
    *  because the paraph lives outside `items[]`. The `page` captured at
@@ -192,6 +199,7 @@ export default function App() {
         updateItems([], { record: true });
         setParaph(null);
         break;
+      case "autofill": void runAutoFill(); break;
       case "zoom_in":
         setScale((s) => Math.min(ZOOM.max, Math.round((s + ZOOM.step) * 100) / 100));
         break;
@@ -898,6 +906,63 @@ export default function App() {
     setProfile(prev => [...prev, { key: trimmed, value: "" }]);
   }
 
+  async function runAutoFill() {
+    if (!pdfDoc) return;
+    // Pre-fetch the text content of every page that has at least one
+    // field — the label-proximity matcher needs it, and we want all
+    // I/O batched up before `buildPlan` runs synchronously.
+    const pagesToFetch = new Set<number>();
+    for (const field of formFields) {
+      if (field.type === "radio") {
+        for (const opt of field.options) pagesToFetch.add(opt.page);
+      } else {
+        pagesToFetch.add(field.page);
+      }
+    }
+    const pageTextItems = new Map<number, ReadonlyArray<TextItemLike>>();
+    try {
+      await Promise.all([...pagesToFetch].map(async (pageNum) => {
+        const page = await pdfDoc.getPage(pageNum);
+        const content = await page.getTextContent();
+        pageTextItems.set(pageNum, content.items as TextItemLike[]);
+      }));
+    } catch (err) {
+      // A failed text-content fetch is recoverable : layer-1 (name
+      // matching) still works without it. Log and proceed with the
+      // pages we did manage to load.
+      console.warn("Auto-fill : text content fetch partially failed:", err);
+    }
+
+    const selectedSignature = selectedSignatureId
+      ? signatures.find((s) => s.id === selectedSignatureId) ?? null
+      : null;
+    const selectedParaphAsset = selectedParaphId
+      ? paraphs.find((p) => p.id === selectedParaphId) ?? null
+      : null;
+
+    const plan = buildPlan({
+      fields: formFields,
+      profile,
+      signature: selectedSignature,
+      paraphAsset: selectedParaphAsset,
+      pageTextItems
+    });
+    setAutoFillPlan(plan);
+  }
+
+  function applyAutoFillPlan(plan: AutoFillPlan) {
+    for (const [name, value] of Object.entries(plan.formValues)) {
+      setFormValue(name, value);
+    }
+    if (plan.newItems.length > 0) {
+      updateItems((prev) => [...prev, ...plan.newItems], { record: true });
+    }
+    if (plan.paraph) {
+      setParaph(plan.paraph);
+    }
+    setAutoFillPlan(null);
+  }
+
   function clearSignaturePad() {
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
@@ -1336,6 +1401,9 @@ export default function App() {
           >
             {themeChoice === "dark" ? <Sun size={18} weight="regular" /> : <Moon size={18} weight="regular" />}
           </button>
+          <button className="btn icon-btn" disabled={!canEdit} onClick={() => void runAutoFill()} title={t("autofill")} aria-label={t("autofill")}>
+            <MagicWand size={18} weight="regular" />
+          </button>
           <button className="btn icon-btn" disabled={!canEdit} onClick={printPdf} title={t("print_pdf")} aria-label={t("print_pdf")}>
             <Printer size={18} weight="regular" />
           </button>
@@ -1707,6 +1775,15 @@ export default function App() {
           {pdfDoc ? t("export_note") : ""}
         </span>
       </footer>
+
+      {autoFillPlan && (
+        <AutoFillModal
+          plan={autoFillPlan}
+          onApply={() => applyAutoFillPlan(autoFillPlan)}
+          onClose={() => setAutoFillPlan(null)}
+          t={t}
+        />
+      )}
 
       {showProfileModal && (
         <ProfileModal
