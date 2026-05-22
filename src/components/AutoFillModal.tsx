@@ -3,6 +3,11 @@ import type { AutoFillPlan } from "../autofill/buildPlan";
 
 type Props = {
   plan: AutoFillPlan;
+  /** Total AcroForm field descriptors discovered by useFormFields,
+   *  including unmatched ones. Used to distinguish a flat PDF (zero
+   *  fields found) from one with cryptic names (fields found but
+   *  nothing matched). */
+  totalFieldsDetected: number;
   onApply: () => void;
   onClose: () => void;
   t: (key: TranslationKey) => string;
@@ -14,11 +19,15 @@ type Props = {
  * of what will change, the list of unmatched fields, and decides
  * whether to commit.
  */
-export function AutoFillModal({ plan, onApply, onClose, t }: Props) {
+export function AutoFillModal({ plan, totalFieldsDetected, onApply, onClose, t }: Props) {
   const matchedFieldCount = plan.stats.matchedText + plan.stats.matchedChoice;
   const hasAnythingToApply =
     matchedFieldCount > 0 || plan.stats.matchedSignature > 0 || plan.paraph !== null;
   const mediumParaph = plan.paraphCandidate?.confidence === "medium";
+  // Distinguish "the PDF has no fillable widgets at all" from "we
+  // found widgets but couldn't match any of them" — these need very
+  // different explanations.
+  const isFlatPdf = totalFieldsDetected === 0;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -44,7 +53,11 @@ export function AutoFillModal({ plan, onApply, onClose, t }: Props) {
           )}
         </ul>
 
-        {!hasAnythingToApply && (
+        {!hasAnythingToApply && isFlatPdf && (
+          <p className="hint autofill-warning">{t("autofill_flat_pdf")}</p>
+        )}
+
+        {!hasAnythingToApply && !isFlatPdf && (
           <p className="hint autofill-warning">{t("autofill_no_matches")}</p>
         )}
 

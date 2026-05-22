@@ -947,6 +947,10 @@ export default function App() {
       paraphAsset: selectedParaphAsset,
       pageTextItems
     });
+    // Diagnostic log — open devtools (Cmd/Ctrl+Shift+I) and inspect
+    // these to understand why an unexpected PDF returns 0 matches.
+    console.debug("[autofill] fields discovered:", formFields.length, formFields);
+    console.debug("[autofill] plan:", plan);
     setAutoFillPlan(plan);
   }
 
@@ -1779,6 +1783,7 @@ export default function App() {
       {autoFillPlan && (
         <AutoFillModal
           plan={autoFillPlan}
+          totalFieldsDetected={formFields.length}
           onApply={() => applyAutoFillPlan(autoFillPlan)}
           onClose={() => setAutoFillPlan(null)}
           t={t}
