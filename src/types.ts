@@ -98,15 +98,3 @@ export type Paraph = {
   rect: PdfRect;
 };
 
-/**
- * One row of the user profile. `key` is a stable identifier that the
- * auto-fill engine matches against form field names ; the label shown
- * in the UI is resolved from the key via i18n for canonical keys, and
- * falls back to the key itself for user-added custom entries.
- */
-export type ProfileEntry = {
-  key: string;
-  value: string;
-};
-
-export type Profile = ProfileEntry[];

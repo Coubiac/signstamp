@@ -74,17 +74,25 @@ export function usePdfDocument({ bytes, scale, getCanvas }: Options): Result {
 
     (async () => {
       try {
+        // pdf.js transfers the ArrayBuffer to its worker thread,
+        // which neuters the original view. Cloning before passing
+        // protects against React Strict Mode double-mounting (which
+        // would otherwise feed an already-detached buffer on the
+        // second invocation and crash with DataCloneError).
+        const data = bytes.slice(0);
         // Defense in depth : keep pdf.js from evaluating any embedded
-        // JavaScript actions, fetching remote sub-resources or
-        // expanding XFA forms. None of these are needed for our
-        // "fill & sign" flow ; opting out shrinks the attack surface
-        // a malicious PDF can exploit.
+        // JavaScript actions or fetching remote sub-resources. XFA is
+        // re-enabled because many French government forms (cerfa,
+        // 2042) ship XFA-only — disabling it leaves the user with
+        // zero fields, defeating the point of the auto-fill feature.
+        // Safe to enable as long as `isEvalSupported: false` blocks
+        // the JS execution vector inside XFA actions.
         const loadingTask = getDocument({
-          data: bytes,
+          data,
           isEvalSupported: false,
           disableAutoFetch: true,
           disableStream: true,
-          enableXfa: false
+          enableXfa: true
         });
         const doc = await loadingTask.promise;
         if (cancelled) return;

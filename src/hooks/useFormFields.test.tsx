@@ -89,50 +89,14 @@ describe("useFormFields", () => {
     expect(h.current.values).toEqual({ agree: false, newsletter: true });
   });
 
-  it("surfaces both signature widgets and push buttons", async () => {
+  it("skips signature widgets but surfaces push buttons", async () => {
     const doc = fakeDoc([[
       { subtype: "Widget", fieldType: "Btn", pushButton: true, fieldName: "submit", rect: [0, 0, 12, 12] },
       { subtype: "Widget", fieldType: "Sig", fieldName: "sig", rect: [0, 0, 100, 20] }
     ]]);
     const h = renderHook(doc);
-    await waitFor(() => expect(h.current.fields).toHaveLength(2));
-    expect(h.current.fields.find((f) => f.type === "button")).toBeDefined();
-    expect(h.current.fields.find((f) => f.type === "signature-field")).toBeDefined();
-  });
-
-  it("discovers a signature widget with its name, page and rect", async () => {
-    const doc = fakeDoc([[
-      { subtype: "Widget", fieldType: "Sig", fieldName: "applicantSignature", rect: [50, 50, 250, 90] }
-    ]]);
-    const h = renderHook(doc);
     await waitFor(() => expect(h.current.fields).toHaveLength(1));
-    expect(h.current.fields[0]).toEqual({
-      type: "signature-field",
-      name: "applicantSignature",
-      page: 1,
-      rect: { x: 50, y: 50, w: 200, h: 40 }
-    });
-  });
-
-  it("does not emit a placement for a signature widget", async () => {
-    // Signature fields are surfaced in `fields` for the auto-fill engine
-    // but produce no interactive overlay — placements stay empty.
-    const doc = fakeDoc([[
-      { subtype: "Widget", fieldType: "Sig", fieldName: "sig", rect: [0, 0, 100, 20] }
-    ]]);
-    const h = renderHook(doc);
-    await waitFor(() => expect(h.current.fields).toHaveLength(1));
-    expect(h.current.placements).toHaveLength(0);
-  });
-
-  it("does not allocate a value entry for a signature widget", async () => {
-    const doc = fakeDoc([[
-      { subtype: "Widget", fieldType: "Sig", fieldName: "sig", rect: [0, 0, 100, 20] },
-      { subtype: "Widget", fieldType: "Tx", fieldName: "name", fieldValue: "Jane", rect: [0, 0, 10, 10] }
-    ]]);
-    const h = renderHook(doc);
-    await waitFor(() => expect(h.current.fields).toHaveLength(2));
-    expect(Object.keys(h.current.values)).toEqual(["name"]);
+    expect(h.current.fields[0].type).toBe("button");
   });
 
   it("flags a push button with a ResetForm action as a Reset button", async () => {

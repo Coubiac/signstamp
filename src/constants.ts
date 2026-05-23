@@ -51,23 +51,6 @@ export const PATH_REOPEN_DEBOUNCE_MS = 5000;
 // the user-triggered download has had time to start.
 export const OBJECT_URL_REVOKE_MS = 10_000;
 
-// Canonical profile keys shipped pre-populated (with empty values) so
-// the user sees what they can fill at first launch. The order is the
-// display order in the profile panel. User-added custom keys live
-// beside these but are not part of the canonical set.
-export const CANONICAL_PROFILE_KEYS = [
-  "firstName",
-  "lastName",
-  "email",
-  "phone",
-  "address",
-  "city",
-  "zip",
-  "country",
-  "dateOfBirth",
-  "iban"
-] as const;
-
 // CSS font stacks for the three logical families exposed in the UI.
 // Kept here so the DOM overlay and any future style consumer share
 // the exact same fallback chain.

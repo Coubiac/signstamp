@@ -71,26 +71,12 @@ export type PushButtonDescriptor = {
   label: string;
 };
 
-/**
- * Signature widget (`/FT /Sig`). Surfaced here for the auto-fill
- * engine ; no interactive control is rendered for it (the overlay
- * layer omits these from placements). Auto-fill stamps a regular
- * `SignatureItem` at the widget's rect when triggered.
- */
-export type SignatureFieldDescriptor = {
-  type: "signature-field";
-  name: string;
-  page: number;
-  rect: PdfRect;
-};
-
 export type FieldDescriptor =
   | TextFieldDescriptor
   | CheckboxFieldDescriptor
   | RadioGroupDescriptor
   | ChoiceFieldDescriptor
-  | PushButtonDescriptor
-  | SignatureFieldDescriptor;
+  | PushButtonDescriptor;
 
 /**
  * Renderable placement for the overlay layer. Text / checkbox / choice
@@ -164,20 +150,6 @@ async function enumerateFields(doc: PDFDocumentProxy): Promise<FieldDescriptor[]
     for (const ann of annotations) {
       if (ann.subtype !== "Widget") continue;
       if (!ann.fieldName || !ann.rect) continue;
-
-      // Signature widget : surfaced for the auto-fill engine, but no
-      // interactive control is rendered (excluded from placements
-      // below). When the user runs auto-fill, a SignatureItem is
-      // stamped at this rect using the currently-selected signature.
-      if (ann.fieldType === "Sig") {
-        simpleFields.push({
-          type: "signature-field",
-          name: ann.fieldName,
-          page: i,
-          rect: rectFromQuad(ann.rect)
-        });
-        continue;
-      }
 
       // Text field.
       if (ann.fieldType === "Tx") {
@@ -291,11 +263,6 @@ function placementsFromFields(fields: FieldDescriptor[]): FieldPlacement[] {
           placements.push({ kind: "radio-option", page: option.page, rect: option.rect, field, option });
         }
         break;
-      case "signature-field":
-        // No interactive overlay : the auto-fill engine consumes the
-        // descriptor from `fields` and stamps a SignatureItem at the
-        // widget's rect when triggered by the user.
-        break;
     }
   }
   return placements;
@@ -325,9 +292,8 @@ export function useFormFields(pdfDoc: PDFDocumentProxy | null) {
         setFields(discovered);
         const initial: FormValues = {};
         for (const field of discovered) {
-          // Push buttons trigger actions, signature widgets are
-          // stamped by the auto-fill engine — neither owns a value.
-          if (field.type === "button" || field.type === "signature-field") continue;
+          // Push buttons trigger actions and do not own a value.
+          if (field.type === "button") continue;
           initial[field.name] = field.defaultValue;
         }
         setValues(initial);
@@ -350,7 +316,7 @@ export function useFormFields(pdfDoc: PDFDocumentProxy | null) {
   function reset() {
     const cleared: FormValues = {};
     for (const field of fields) {
-      if (field.type === "button" || field.type === "signature-field") continue;
+      if (field.type === "button") continue;
       cleared[field.name] = field.defaultValue;
     }
     setValues(cleared);

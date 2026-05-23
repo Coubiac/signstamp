@@ -22,11 +22,6 @@ struct StoredSignature {
     natural_h: u32,
 }
 
-#[derive(Serialize, Deserialize)]
-struct StoredProfileEntry {
-    key: String,
-    value: String,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,14 +53,6 @@ fn paraphs_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|e| format!("app data dir introuvable: {e}"))?;
     Ok(dir.join("paraphs.json"))
-}
-
-fn profile_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app data dir introuvable: {e}"))?;
-    Ok(dir.join("profile.json"))
 }
 
 fn snippets_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -136,30 +123,6 @@ fn save_paraphs(app: tauri::AppHandle, paraphs: Vec<StoredSignature>) -> Result<
     }
 
     let bytes = serde_json::to_vec(&paraphs).map_err(|e| format!("json invalide: {e}"))?;
-    std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-fn load_profile(app: tauri::AppHandle) -> Result<Vec<StoredProfileEntry>, String> {
-    let path = profile_path(&app)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let bytes = std::fs::read(&path).map_err(|e| format!("lecture impossible: {e}"))?;
-    let profile = serde_json::from_slice(&bytes).map_err(|e| format!("json invalide: {e}"))?;
-    Ok(profile)
-}
-
-#[tauri::command]
-fn save_profile(app: tauri::AppHandle, profile: Vec<StoredProfileEntry>) -> Result<(), String> {
-    let path = profile_path(&app)?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("creation dossier impossible: {e}"))?;
-    }
-
-    let bytes = serde_json::to_vec(&profile).map_err(|e| format!("json invalide: {e}"))?;
     std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
     Ok(())
 }
@@ -375,8 +338,6 @@ fn main() {
             save_signatures,
             load_paraphs,
             save_paraphs,
-            load_profile,
-            save_profile,
             load_snippets,
             save_snippets,
             save_pdf_to_path,
