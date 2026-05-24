@@ -21,6 +21,10 @@ import { ParaphOverlay } from "./components/items/ParaphOverlay";
 import { useSnippets } from "./hooks/useSnippets";
 import { useSignatures } from "./hooks/useSignatures";
 import { useParaphAssets } from "./hooks/useParaphAssets";
+import { useTemplates } from "./hooks/useTemplates";
+import { TemplatesModal } from "./components/TemplatesModal";
+import { applyTemplate } from "./templates/applyTemplate";
+import type { Template } from "./templates/types";
 import { useDragMachine } from "./hooks/useDragMachine";
 import { usePdfDocument } from "./hooks/usePdfDocument";
 import { useTextStyle } from "./hooks/useTextStyle";
@@ -48,6 +52,7 @@ import {
   Plus,
   Printer,
   Signature as SignatureIcon,
+  Bookmarks,
   Stamp,
   Sun,
   TextB,
@@ -100,6 +105,8 @@ export default function App() {
   const [paraph, setParaph] = useState<Paraph | null>(null);
 
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+  const [templates, setTemplates] = useTemplates();
   /** App version read from `tauri.conf.json` once the Tauri shell is
    *  ready ; falls back to "dev" in the plain-browser web preview. */
   const [appVersion, setAppVersion] = useState<string>("dev");
@@ -182,6 +189,7 @@ export default function App() {
       case "open_pdf": pdfInputRef.current?.click(); break;
       case "export_pdf": void exportPdf(); break;
       case "print_pdf": void printPdf(); break;
+      case "templates": setShowTemplatesModal(true); break;
       case "undo": undoLast(); break;
       case "clear_all":
         updateItems([], { record: true });
@@ -534,7 +542,7 @@ export default function App() {
     const xPx = e.clientX - rect.left;
     const yPx = e.clientY - rect.top;
 
-    function addTextItem(value: string, widthPx: number, heightPx: number, fontSize: number, startEditing = false) {
+    function addTextItem(value: string, widthPx: number, heightPx: number, fontSize: number, startEditing = false, autoDate = false) {
       const [xPdf, yPdf] = viewport.convertToPdfPoint(xPx, yPx);
       const { wPdf, hPdf } = pxSizeToPdfSize(widthPx, heightPx, viewport);
 
@@ -550,7 +558,11 @@ export default function App() {
         fontFamily: textStyle.fontFamily,
         bold: textStyle.bold,
         underline: textStyle.underline,
-        strike: textStyle.strike
+        strike: textStyle.strike,
+        // Mark date-tool items so applyTemplate() can refresh their
+        // value to "today" when this overlay is saved into a template
+        // and replayed later.
+        ...(autoDate ? { autoDate: true } : {})
       });
       if (startEditing) {
         setEditingId(id);
@@ -585,7 +597,7 @@ export default function App() {
     // Outil date
     if (tool === "date") {
       const now = new Date();
-      addTextItem(formatLocaleDate(lang, now), DATE_DEFAULTS.widthPx, DATE_DEFAULTS.heightPx, textStyle.fontSize);
+      addTextItem(formatLocaleDate(lang, now), DATE_DEFAULTS.widthPx, DATE_DEFAULTS.heightPx, textStyle.fontSize, false, true);
       return;
     }
 
@@ -873,6 +885,40 @@ export default function App() {
     }
     setEditingParaphId(null);
     setEditingParaphName("");
+  }
+
+  function saveCurrentAsTemplate(name: string) {
+    const template: Template = {
+      id: uid(),
+      name,
+      updatedAt: new Date().toISOString(),
+      // Deep-clone via JSON so subsequent mutations to items / paraph
+      // in the live document don't bleed into the saved template.
+      items: JSON.parse(JSON.stringify(items)),
+      paraph: paraph ? JSON.parse(JSON.stringify(paraph)) : null
+    };
+    setTemplates(prev => [template, ...prev]);
+  }
+
+  function applyTemplateById(template: Template) {
+    const result = applyTemplate({ template, locale: lang });
+    // Append : preserve any overlays the user already placed. Records
+    // a history entry so the apply is undoable in one shot.
+    updateItems(prev => [...prev, ...result.items], { record: true });
+    // The template's paraph replaces the current one if present ;
+    // an empty template's paraph leaves the current paraph alone.
+    if (result.paraph) setParaph(result.paraph);
+    setShowTemplatesModal(false);
+  }
+
+  function deleteTemplate(id: string) {
+    setTemplates(prev => prev.filter(t => t.id !== id));
+  }
+
+  function renameTemplate(id: string, name: string) {
+    setTemplates(prev => prev.map(t => t.id === id
+      ? { ...t, name, updatedAt: new Date().toISOString() }
+      : t));
   }
 
   function clearSignaturePad() {
@@ -1312,6 +1358,9 @@ export default function App() {
           >
             {themeChoice === "dark" ? <Sun size={18} weight="regular" /> : <Moon size={18} weight="regular" />}
           </button>
+          <button className="btn icon-btn" onClick={() => setShowTemplatesModal(true)} title={t("templates")} aria-label={t("templates")}>
+            <Bookmarks size={18} weight="regular" />
+          </button>
           <button className="btn icon-btn" disabled={!canEdit} onClick={printPdf} title={t("print_pdf")} aria-label={t("print_pdf")}>
             <Printer size={18} weight="regular" />
           </button>
@@ -1683,6 +1732,20 @@ export default function App() {
           {pdfDoc ? t("export_note") : ""}
         </span>
       </footer>
+
+      {showTemplatesModal && (
+        <TemplatesModal
+          templates={templates}
+          canSave={canEdit && (items.length > 0 || paraph !== null)}
+          onSave={saveCurrentAsTemplate}
+          onApply={applyTemplateById}
+          onDelete={deleteTemplate}
+          onRename={renameTemplate}
+          onClose={() => setShowTemplatesModal(false)}
+          t={t}
+          lang={lang}
+        />
+      )}
 
       {showAboutModal && (
         <div className="modal-backdrop" onClick={() => setShowAboutModal(false)}>

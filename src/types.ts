@@ -25,6 +25,11 @@ export type TextItem = {
   bold: boolean;
   underline: boolean;
   strike: boolean;
+  /** Marks items created by the date tool. When a template is
+   *  applied, these items' `value` is recomputed to today's date in
+   *  the active locale (vs. static text items which keep their
+   *  stored value). Absent on legacy / manual text items. */
+  autoDate?: boolean;
 };
 
 export type SignatureItem = {

@@ -55,6 +55,14 @@ fn paraphs_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("paraphs.json"))
 }
 
+fn templates_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir introuvable: {e}"))?;
+    Ok(dir.join("templates.json"))
+}
+
 fn snippets_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -123,6 +131,34 @@ fn save_paraphs(app: tauri::AppHandle, paraphs: Vec<StoredSignature>) -> Result<
     }
 
     let bytes = serde_json::to_vec(&paraphs).map_err(|e| format!("json invalide: {e}"))?;
+    std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
+    Ok(())
+}
+
+/// Templates contain nested items / paraph whose shape changes as
+/// the frontend gains item types. Persisting them as opaque JSON
+/// values means the Rust side never needs to mirror that schema —
+/// the frontend remains the single source of truth for the contract.
+#[tauri::command]
+fn load_templates(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    let path = templates_path(&app)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("lecture impossible: {e}"))?;
+    let templates = serde_json::from_slice(&bytes).map_err(|e| format!("json invalide: {e}"))?;
+    Ok(templates)
+}
+
+#[tauri::command]
+fn save_templates(app: tauri::AppHandle, templates: Vec<serde_json::Value>) -> Result<(), String> {
+    let path = templates_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("creation dossier impossible: {e}"))?;
+    }
+
+    let bytes = serde_json::to_vec(&templates).map_err(|e| format!("json invalide: {e}"))?;
     std::fs::write(&path, bytes).map_err(|e| format!("ecriture impossible: {e}"))?;
     Ok(())
 }
@@ -286,7 +322,7 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R
         &MenuItem::with_id(app, "export_pdf", "Export PDF…", true, Some("CmdOrCtrl+S"))?,
         &MenuItem::with_id(app, "print_pdf", "Print", true, Some("CmdOrCtrl+P"))?,
         &PredefinedMenuItem::separator(app)?,
-        &MenuItem::with_id(app, "profile", "Profile…", true, Some("CmdOrCtrl+Comma"))?,
+        &MenuItem::with_id(app, "templates", "Templates…", true, Some("CmdOrCtrl+T"))?,
         &PredefinedMenuItem::separator(app)?,
         &PredefinedMenuItem::quit(app, None)?,
     ])?;
@@ -294,8 +330,6 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R
     let edit = Submenu::with_items(app, "Edit", true, &[
         &MenuItem::with_id(app, "undo", "Undo", true, Some("CmdOrCtrl+Z"))?,
         &MenuItem::with_id(app, "clear_all", "Clear all annotations", true, None::<&str>)?,
-        &PredefinedMenuItem::separator(app)?,
-        &MenuItem::with_id(app, "autofill", "Auto-fill from profile", true, Some("CmdOrCtrl+Shift+F"))?,
     ])?;
 
     let view = Submenu::with_items(app, "View", true, &[
@@ -338,6 +372,8 @@ fn main() {
             save_signatures,
             load_paraphs,
             save_paraphs,
+            load_templates,
+            save_templates,
             load_snippets,
             save_snippets,
             save_pdf_to_path,
