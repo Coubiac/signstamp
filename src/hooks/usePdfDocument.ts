@@ -128,12 +128,25 @@ export function usePdfDocument({ bytes, scale, getCanvas }: Options): Result {
         const ctx = canvas.getContext("2d");
         if (!ctx) continue;
 
-        canvas.width = Math.floor(vp.width);
-        canvas.height = Math.floor(vp.height);
+        // Render at the device's pixel ratio : on HiDPI screens
+        // (Retina, 4K, most modern laptops) the browser otherwise
+        // upscales a 1× canvas to 2×+ device pixels, producing the
+        // tell-tale blurry pdf.js output. The CSS size stays at the
+        // viewport's logical pixels so layout / overlay coordinates
+        // don't shift ; only the backing store grows.
+        const dpr = typeof window !== "undefined" ? (window.devicePixelRatio || 1) : 1;
+        canvas.width = Math.floor(vp.width * dpr);
+        canvas.height = Math.floor(vp.height * dpr);
         canvas.style.width = `${Math.floor(vp.width)}px`;
         canvas.style.height = `${Math.floor(vp.height)}px`;
 
-        const task = page.render({ canvasContext: ctx, viewport: vp });
+        const task = page.render({
+          canvasContext: ctx,
+          viewport: vp,
+          // pdf.js applies this affine transform to the canvas
+          // context before drawing, equivalent to ctx.scale(dpr, dpr).
+          transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined
+        });
         activeRenderTask = task;
         try {
           await task.promise;
