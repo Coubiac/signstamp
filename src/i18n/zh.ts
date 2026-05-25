@@ -1,7 +1,7 @@
 import type { Translations } from "./types";
 
 export const zh: Translations = {
-  app_title: "SignStamp",
+  app_title: "Cerfini",
   open_pdf: "打开 PDF",
   pages_singular: "页",
   pages_plural: "页",

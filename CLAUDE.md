@@ -2,7 +2,7 @@
 
 Project guidance for Claude Code is consolidated in [AGENTS.md](AGENTS.md) so all AI coding tools (Claude Code, OpenAI Codex, Cursor, …) read from the same source. Refer to that file for:
 
-- What SignStamp is and its architecture
+- What Cerfini is and its architecture
 - Run / test / build commands
 - Code conventions (state model, types, components, i18n, Tauri commands)
 - Security posture (local-only, hardened pdf.js options)

@@ -835,8 +835,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "signstamp"
-version = "0.6.1"
+name = "cerfini"
+version = "0.7.0"
 dependencies = [
  "serde",
  "serde_json",

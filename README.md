@@ -1,4 +1,4 @@
-# SignStamp
+# Cerfini
 
 Application de bureau (Tauri + React) pour remplir, annoter, signer et imprimer des PDF.
 

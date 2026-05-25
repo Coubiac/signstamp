@@ -8,7 +8,7 @@
   "bundle": {
     "active": true,
     "publisher": "Coubiac",
-    "homepage": "https://github.com/Coubiac/signstamp",
+    "homepage": "https://github.com/Coubiac/cerfini",
     "shortDescription": "Fill, sign and stamp PDFs locally",
     "longDescription": "Desktop app for filling, annotating, signing and stamping PDF documents. Multi-page paraphs, AcroForm field filling, saved overlay templates.",
     "targets": [
@@ -46,10 +46,10 @@
       }
     }
   },
-  "productName": "SignStamp",
-  "mainBinaryName": "SignStamp",
-  "version": "0.6.1",
-  "identifier": "com.coubiac.signstamp",
+  "productName": "Cerfini",
+  "mainBinaryName": "Cerfini",
+  "version": "0.7.0",
+  "identifier": "com.coubiac.cerfini",
   "plugins": {},
   "app": {
     "security": {
@@ -57,7 +57,7 @@
     },
     "windows": [
       {
-        "title": "SignStamp",
+        "title": "Cerfini",
         "width": 1200,
         "height": 800,
         "resizable": true,

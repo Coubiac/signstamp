@@ -4,7 +4,7 @@
  * from this file, so a missing key in any locale fails at type-check.
  */
 export const en = {
-  app_title: "SignStamp",
+  app_title: "Cerfini",
   open_pdf: "Open PDF",
   pages_singular: "page",
   pages_plural: "pages",

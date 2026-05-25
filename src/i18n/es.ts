@@ -1,7 +1,7 @@
 import type { Translations } from "./types";
 
 export const es: Translations = {
-  app_title: "SignStamp",
+  app_title: "Cerfini",
   open_pdf: "Abrir PDF",
   pages_singular: "página",
   pages_plural: "páginas",

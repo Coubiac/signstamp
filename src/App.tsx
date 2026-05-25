@@ -139,7 +139,7 @@ export default function App() {
   const [editingSignatureName, setEditingSignatureName] = useState("");
   const [themeChoice, setThemeChoice] = useState<"light" | "dark">(() => {
     try {
-      const stored = localStorage.getItem("signstamp.theme");
+      const stored = localStorage.getItem("cerfini.theme");
       if (stored === "light" || stored === "dark") return stored;
     } catch {
       // ignore storage errors
@@ -202,7 +202,7 @@ export default function App() {
       case "theme_dark": setThemeChoice("dark"); break;
       case "about": setShowAboutModal(true); break;
       case "github":
-        void openExternal("https://github.com/Coubiac/signstamp").catch((err) => {
+        void openExternal("https://github.com/Coubiac/cerfini").catch((err) => {
           console.error("Failed to open GitHub:", err);
         });
         break;
@@ -275,7 +275,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("signstamp.theme", themeChoice);
+      localStorage.setItem("cerfini.theme", themeChoice);
     } catch {
       // ignore storage errors
     }
@@ -1719,7 +1719,7 @@ export default function App() {
         <div className="modal-backdrop" onClick={() => setShowAboutModal(false)}>
           <div className="modal-card about-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>SignStamp</h3>
+              <h3>Cerfini</h3>
               <button className="btn icon-btn" onClick={() => setShowAboutModal(false)} aria-label={t("signature_cancel")}>
                 ×
               </button>
@@ -1729,7 +1729,7 @@ export default function App() {
             <div className="modal-actions">
               <div className="modal-actions-right">
                 <button className="btn" onClick={() => {
-                  void openExternal("https://github.com/Coubiac/signstamp").catch(console.error);
+                  void openExternal("https://github.com/Coubiac/cerfini").catch(console.error);
                 }}>GitHub</button>
                 <button className="btn primary" onClick={() => setShowAboutModal(false)}>OK</button>
               </div>

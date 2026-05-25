@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { usePersistentState } from "./usePersistentState";
 import { dualAdapter } from "./storageAdapters";
 
-const STORAGE_KEY = "signstamp.snippets";
+const STORAGE_KEY = "cerfini.snippets";
 
 /**
  * Persisted list of reusable text snippets. Stored as a Tauri-managed

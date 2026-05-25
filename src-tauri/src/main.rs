@@ -342,7 +342,7 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R
     ])?;
 
     let help = Submenu::with_items(app, "Help", true, &[
-        &MenuItem::with_id(app, "about", "About SignStamp", true, None::<&str>)?,
+        &MenuItem::with_id(app, "about", "About Cerfini", true, None::<&str>)?,
         &MenuItem::with_id(app, "github", "GitHub", true, None::<&str>)?,
     ])?;
 
