@@ -7,6 +7,10 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Coubiac",
+    "homepage": "https://github.com/Coubiac/signstamp",
+    "shortDescription": "Fill, sign and stamp PDFs locally",
+    "longDescription": "Desktop app for filling, annotating, signing and stamping PDF documents. Multi-page paraphs, AcroForm field filling, saved overlay templates.",
     "targets": [
       "deb",
       "rpm",
@@ -44,8 +48,8 @@
   },
   "productName": "SignStamp",
   "mainBinaryName": "SignStamp",
-  "version": "0.5.0",
-  "identifier": "com.example.fillsignpdf",
+  "version": "0.6.0",
+  "identifier": "com.coubiac.signstamp",
   "plugins": {},
   "app": {
     "security": {

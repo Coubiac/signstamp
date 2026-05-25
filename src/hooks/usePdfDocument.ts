@@ -81,18 +81,15 @@ export function usePdfDocument({ bytes, scale, getCanvas }: Options): Result {
         // second invocation and crash with DataCloneError).
         const data = bytes.slice(0);
         // Defense in depth : keep pdf.js from evaluating any embedded
-        // JavaScript actions or fetching remote sub-resources. XFA is
-        // re-enabled because many French government forms (cerfa,
-        // 2042) ship XFA-only — disabling it leaves the user with
-        // zero fields, defeating the point of the auto-fill feature.
-        // Safe to enable as long as `isEvalSupported: false` blocks
-        // the JS execution vector inside XFA actions.
+        // JavaScript actions, fetching remote sub-resources, or
+        // rendering XFA forms — none of which the app needs and all
+        // of which broaden the attack surface a malicious PDF can use.
         const loadingTask = getDocument({
           data,
           isEvalSupported: false,
           disableAutoFetch: true,
           disableStream: true,
-          enableXfa: true
+          enableXfa: false
         });
         const doc = await loadingTask.promise;
         if (cancelled) return;

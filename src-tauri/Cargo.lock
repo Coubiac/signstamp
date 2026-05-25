@@ -835,8 +835,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "fill-sign-pdf"
-version = "0.5.0"
+name = "signstamp"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",

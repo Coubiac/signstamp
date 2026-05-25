@@ -75,7 +75,7 @@ The release workflow (`.github/workflows/release.yml`) fires on `v*` tags and pr
 - **No `Co-Authored-By` trailer** in commits.
 - One commit per logical change. Version bump = its own commit (`Bump version to X.Y.Z`).
 - Tag `v<version>` triggers the release workflow.
-- Version lives in 4 places — keep them in sync: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `fill-sign-pdf` entry in `src-tauri/Cargo.lock`.
+- Version lives in 4 places — keep them in sync: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `signstamp` entry in `src-tauri/Cargo.lock`.
 
 ## Where in-flight feature plans live
 - `docs/plans/v<version>-<feature>.md` — work-in-progress designs that we iterate on before coding. Archive or delete after the feature ships.
