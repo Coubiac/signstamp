@@ -149,10 +149,6 @@ export default function App() {
   const openedPdfPaths = useRef(new Set<string>());
   const overlayRefs = useRef(new Map<number, HTMLDivElement>());
   const snippetDrag = useRef<{ value: string; pointerId: number; lastX: number; lastY: number } | null>(null);
-  const isMac = useMemo(
-    () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform),
-    []
-  );
 
   const itemsByPage = useMemo(() => {
     const map = new Map<number, Item[]>();
@@ -502,7 +498,11 @@ export default function App() {
   }
 
   function startSnippetDrag(e: ReactPointerEvent, value: string) {
-    if (!isMac) return;
+    // Unified pointer-event approach for all platforms — the native
+    // HTML5 drag-drop path used to handle Windows/Linux but was
+    // flaky inside Tauri's WebView2 (drops silently no-op'd). Pointer
+    // capture + manual hit-testing in finishSnippetDrag is reliable
+    // everywhere.
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     snippetDrag.current = {
@@ -591,6 +591,7 @@ export default function App() {
     // Outil texte
     if (tool === "text") {
       addTextItem("", TEXT_DEFAULTS.widthPx, TEXT_DEFAULTS.heightPx, textStyle.fontSize, true);
+      setTool("pan");
       return;
     }
 
@@ -598,6 +599,7 @@ export default function App() {
     if (tool === "date") {
       const now = new Date();
       addTextItem(formatLocaleDate(lang, now), DATE_DEFAULTS.widthPx, DATE_DEFAULTS.heightPx, textStyle.fontSize, false, true);
+      setTool("pan");
       return;
     }
 
@@ -1130,17 +1132,6 @@ export default function App() {
     }
   }
 
-  function onSnippetDrop(e: React.DragEvent<HTMLDivElement>, pageNum: number) {
-    const text = (
-      e.dataTransfer.getData("application/x-signstamp-snippet")
-      || e.dataTransfer.getData("text/plain")
-      || e.dataTransfer.getData("text")
-    ).trim();
-    if (!text) return;
-    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    addTextAt(pageNum, e.clientX - rect.left, e.clientY - rect.top, text, false);
-  }
-
   const canEdit = Boolean(pdfDoc);
   const canSign = canEdit && signatures.length > 0;
   const canParaph = canEdit && paraphs.length > 0;
@@ -1582,15 +1573,7 @@ export default function App() {
                       className="snippets-use"
                       role="button"
                       tabIndex={0}
-                      draggable={!isMac}
                       onPointerDown={(e) => startSnippetDrag(e, entry)}
-                      onDragStart={(e) => {
-                        if (isMac) return;
-                        e.dataTransfer.setData("application/x-signstamp-snippet", entry);
-                        e.dataTransfer.setData("text/plain", entry);
-                        e.dataTransfer.setData("text", entry);
-                        e.dataTransfer.effectAllowed = "copy";
-                      }}
                       title={t("snippets_use")}
                     >
                       <span>{entry}</span>
@@ -1652,21 +1635,6 @@ export default function App() {
                           setParaphSelected(false);
                         }
                         onOverlayClick(e, pageNum);
-                      }}
-                      onDragEnter={(e) => {
-                        if (!canEdit) return;
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                      }}
-                      onDragOver={(e) => {
-                        if (!canEdit) return;
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                      }}
-                      onDrop={(e) => {
-                        if (!canEdit) return;
-                        e.preventDefault();
-                        onSnippetDrop(e, pageNum);
                       }}
                       onPointerDown={(e) => startDraw(e, pageNum)}
                       aria-label="overlay"
