@@ -1,6 +1,6 @@
 # SignStamp
 
-Application de bureau (Tauri + React) pour remplir, annoter, signer et imprimer des PDF — 100 % local, sans appel réseau.
+Application de bureau (Tauri + React) pour remplir, annoter, signer et imprimer des PDF.
 
 ## Fonctionnalités
 - Ouvrir un PDF (mono‑ ou multi‑pages) avec zoom et déplacement.
@@ -23,7 +23,6 @@ Application de bureau (Tauri + React) pour remplir, annoter, signer et imprimer 
 - Tests : Vitest + Testing Library (jsdom).
 
 ## Posture sécurité
-- Aucun appel réseau dans l'app (pas de fetch, pas de télémétrie).
 - pdf.js chargé avec `isEvalSupported: false`, `disableAutoFetch: true`, `disableStream: true` — pas d'exécution de JavaScript embarqué ni de récupération de ressources distantes.
 - Les commandes Tauri qui prennent un chemin valident l'extension `.pdf` côté Rust.
 
